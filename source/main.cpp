@@ -172,9 +172,9 @@ int main(void) {
   // l'extinction ; on tourne dedans jusqu'a ce qu'elle dise stop.
   while (pmMainLoop()) {
     timerStop(2); timerStart(2, ClockDivider_64, 0, NULL);
-    // Deux fois par image : le tampon fait 31 ms pour une image de 16,7 ms, et
-    // une seule passe ne laisse aucune marge si une image deborde.
-    mmStreamUpdate();
+    // UNE seule fois par image. J'avais essaye deux passes pour donner de la
+    // marge au tampon : ca a bloque la boucle avant meme le premier dessin.
+    // A ce rythme la, le moteur n'a deja pas le temps d'en faire une.
     mmStreamUpdate();
     int ticks = timerElapsed(2);
 
@@ -205,21 +205,13 @@ int main(void) {
     m[0]='C'; m[1]='P'; m[2]='U'; m[3]=' ';
     m[4]='0'+(pourcent/100)%10; m[5]='0'+(pourcent/10)%10; m[6]='0'+pourcent%10;
     m[7]=' '; m[8]='/'; m[9]=' '; m[10]='1'; m[11]='0'; m[12]='0'; m[13]=0;
-    // La mesure ne change qu'une fois par seconde : inutile de la repeindre
-    // soixante fois.
-    if (compte == 0) {
-      efface(16, 0, 13);
-      texte(16, 0, m, pourcent > 90 ? rvb(31, 10, 8) : kEntete);
-    }
+    efface(16, 0, 13);
+    texte(16, 0, m, pourcent > 90 ? rvb(31, 10, 8) : kEntete);
 
-    // On ne redessine QUE si quelque chose a bouge. Repeindre les 260 cases a
-    // chaque image mangeait le temps dont le son a besoin, et le tampon se
-    // vidait : c'est ce qui rendait le son inecoutable.
-    static int vuCanal = -1, vuLigne = -1, vuHaut = -1;
-    bool aChange = (curCanal != vuCanal || curLigne != vuLigne || haut != vuHaut);
-    vuCanal = curCanal; vuLigne = curLigne; vuHaut = haut;
-
-    for (int l = 0; aChange && l < kLignesVues; l++) {
+    // Redessin complet a chaque image. J'avais essaye de ne repeindre que sur
+    // changement, pour rendre du temps au son : la grille ne s'affichait plus
+    // du tout. Tant que la cause n'est pas comprise, on garde ce qui marche.
+    for (int l = 0; l < kLignesVues; l++) {
       int ligne = haut + l;
       char num[3];
       num[0] = kHex[(ligne >> 4) & 15]; num[1] = kHex[ligne & 15]; num[2] = 0;
