@@ -10,6 +10,7 @@
 // ============================================================================
 #include <nds.h>
 #include <calico/system/thread.h>
+#include <maxmod9.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -56,6 +57,25 @@ static void car(int col, int lig, char c, u16 couleur) {
 
 static void texte(int col, int lig, const char *s, u16 couleur) {
   for (int i = 0; s[i]; i++) car(col + i, lig, s[i], couleur);
+}
+
+// Efface une zone de texte avant de la reecrire.
+static void efface(int col, int lig, int n) {
+  int x0 = col * MD_CELL_W, y0 = lig * MD_CELL_H;
+  for (int y = y0; y < y0 + MD_CELL_H; y++)
+    for (int x = x0; x < x0 + n * MD_CELL_W; x++)
+      pixel(x, y, (y & 1) ? rvb(0, 1, 1) : kFond);
+}
+
+// ── Le son ──────────────────────────────────────────────────────────────────
+// Le moteur remplit le tampon depuis la BOUCLE PRINCIPALE, jamais depuis une
+// interruption : maxmod est ouvert en mode « manuel » et c'est nous qui
+// appelons mmStreamUpdate. C'est ce que suppose md_lock.h, qui n'installe
+// aucun verrou sur DS — si un jour ça changeait, il faudrait le corriger la-bas.
+static mm_word flux_demande(mm_word longueur, mm_addr dest, mm_stream_formats f) {
+  (void)f;
+  md_replayer_update((uint8_t *)dest, (int)longueur * 4);   // stereo 16 bits
+  return longueur;
 }
 
 // ── Trame du CRT ────────────────────────────────────────────────────────────
@@ -109,7 +129,38 @@ int main(void) {
     for (int c = 0; c < 10; c++) texte(4 + c * 6, 4 + l, "- -", kAttenue);
   }
 
+  // Le timer 0 est a maxmod ; on prend le 2 pour la mesure.
+  timerStart(2, ClockDivider_64, 0, NULL);
+  const int kTicksParImage = 8724;   // 33,51 MHz / 64 / 59,83 Hz
+
   while (1) {
+    timerStop(2); timerStart(2, ClockDivider_64, 0, NULL);
+    mmStreamUpdate();               // le moteur produit le son ICI
+    int ticks = timerElapsed(2);
+
+    // Charge processeur : c'est LA question de ce portage. Si emuler le YM2612
+    // ne tient pas dans une image, tout le reste est sans objet.
+    //
+    // On affiche la CRETE sur une seconde, pas la valeur de l'image courante :
+    // le tampon fait 1024 echantillons, soit 31 ms, donc maxmod ne redemande du
+    // son qu'une image sur deux. Mesurer une image au hasard donne 0 la moitie
+    // du temps et ne dit rien. C'est le pire cas qui compte.
+    static int crete = 0, compte = 0, affiche = 0;
+    if (ticks > crete) crete = ticks;
+    if (++compte >= 60) { affiche = crete; crete = 0; compte = 0; }
+
+    int pourcent = affiche * 100 / kTicksParImage;
+    if (pourcent > 999) pourcent = 999;
+    char m[16];
+    m[0] = 'C'; m[1] = 'P'; m[2] = 'U'; m[3] = ' ';
+    m[4] = '0' + (pourcent / 100) % 10;
+    m[5] = '0' + (pourcent / 10) % 10;
+    m[6] = '0' + pourcent % 10;
+    m[7] = ' '; m[8] = '/'; m[9] = ' '; m[10] = '1'; m[11] = '0'; m[12] = '0';
+    m[13] = 0;
+    efface(16, 0, 13);
+    texte(16, 0, m, pourcent > 90 ? rvb(31, 10, 8) : kEntete);
+
     swiWaitForVBlank();
     scanKeys();
     if (keysDown() & KEY_START) break;

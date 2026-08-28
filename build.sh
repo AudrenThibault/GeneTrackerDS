@@ -60,7 +60,7 @@ done
 echo "  edition de liens..."
 arm-none-eabi-g++ -specs="$CALICO/share/ds9.specs" -g $ARCH \
   -Wl,--gc-sections -Wl,-Map,"$OBJ/MDTrackerDS.map" \
-  "${OBJETS[@]}" -L"$DEVKITPRO/libnds/lib" -L"$CALICO/lib" -lfat -lnds9 -lcalico_ds9 -o "$CIBLE.elf"
+  "${OBJETS[@]}" -L"$DEVKITPRO/libnds/lib" -L"$CALICO/lib" -lfat -lmm9 -lnds9 -lcalico_ds9 -o "$CIBLE.elf"
 
 echo "  fabrication de la cartouche..."
 ndstool -c "$CIBLE.nds" -9 "$CIBLE.elf" -7 "$CALICO/bin/ds7_maine.elf" \
