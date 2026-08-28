@@ -73,15 +73,17 @@ int main(void) {
   // ── Video ─────────────────────────────────────────────────────────────
   // Ecran du haut en bitmap 16 bits : on maitrise chaque pixel, ce qu'il faut
   // pour un rendu de tube. VRAM A lui suffit (256 x 192 x 2 = 96 Ko sur 128).
+  powerOn(POWER_ALL_2D);
+  lcdMainOnTop();
   videoSetMode(MODE_5_2D);
   vramSetBankA(VRAM_A_MAIN_BG);
-  int bg = bgInit(3, BgType_Bmp16, BgSize_B16_256x256, 0, 0);
+  int bg = bgInit(2, BgType_Bmp16, BgSize_B16_256x256, 0, 0);
   g_fond = bgGetGfxPtr(bg);
 
   // Ecran du bas : vide, comme demande.
   videoSetModeSub(MODE_5_2D);
   vramSetBankC(VRAM_C_SUB_BG);
-  int bgSub = bgInitSub(3, BgType_Bmp16, BgSize_B16_256x256, 0, 0);
+  int bgSub = bgInitSub(2, BgType_Bmp16, BgSize_B16_256x256, 0, 0);
   u16 *bas = bgGetGfxPtr(bgSub);
   for (int i = 0; i < kEcranL * kEcranH; i++) bas[i] = ARGB16(1, 0, 0, 0);
 
