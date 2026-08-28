@@ -147,6 +147,16 @@ int main(void) {
   static const char *noms[10] = {"FM1","FM2","FM3","FM4","FM5","PCM",
                                  "SQ1","SQ2","SQ3","NOI"};
   texte(0, 0, charge ? "MD TRACKER DS" : "DMF REFUSE", kEntete);
+  {
+    // Le tempo relu du morceau : s'il est aberrant, c'est lui qui mettait le
+    // nombre d'echantillons par tic a zero.
+    int bpm = (int)md_replayer_get_bpm();
+    if (bpm < 0) bpm = 0; if (bpm > 999) bpm = 999;
+    char t[10] = {'B','P','M',' ',
+                  (char)('0'+(bpm/100)%10), (char)('0'+(bpm/10)%10),
+                  (char)('0'+bpm%10), 0};
+    texte(34, 0, t, kEntete);
+  }
   texte(52, 0, "SONG", kEntete);
   for (int c = 0; c < 10; c++) texte(4 + c * 6, 2, noms[c], kEntete);
 
@@ -162,7 +172,10 @@ int main(void) {
   // l'extinction ; on tourne dedans jusqu'a ce qu'elle dise stop.
   while (pmMainLoop()) {
     timerStop(2); timerStart(2, ClockDivider_64, 0, NULL);
-    mmStreamUpdate();               // le moteur produit le son ICI
+    // Deux fois par image : le tampon fait 31 ms pour une image de 16,7 ms, et
+    // une seule passe ne laisse aucune marge si une image deborde.
+    mmStreamUpdate();
+    mmStreamUpdate();
     int ticks = timerElapsed(2);
 
     // Charge processeur : c'est LA question de ce portage. Si emuler le YM2612
@@ -192,10 +205,21 @@ int main(void) {
     m[0]='C'; m[1]='P'; m[2]='U'; m[3]=' ';
     m[4]='0'+(pourcent/100)%10; m[5]='0'+(pourcent/10)%10; m[6]='0'+pourcent%10;
     m[7]=' '; m[8]='/'; m[9]=' '; m[10]='1'; m[11]='0'; m[12]='0'; m[13]=0;
-    efface(16, 0, 13);
-    texte(16, 0, m, pourcent > 90 ? rvb(31, 10, 8) : kEntete);
+    // La mesure ne change qu'une fois par seconde : inutile de la repeindre
+    // soixante fois.
+    if (compte == 0) {
+      efface(16, 0, 13);
+      texte(16, 0, m, pourcent > 90 ? rvb(31, 10, 8) : kEntete);
+    }
 
-    for (int l = 0; l < kLignesVues; l++) {
+    // On ne redessine QUE si quelque chose a bouge. Repeindre les 260 cases a
+    // chaque image mangeait le temps dont le son a besoin, et le tampon se
+    // vidait : c'est ce qui rendait le son inecoutable.
+    static int vuCanal = -1, vuLigne = -1, vuHaut = -1;
+    bool aChange = (curCanal != vuCanal || curLigne != vuLigne || haut != vuHaut);
+    vuCanal = curCanal; vuLigne = curLigne; vuHaut = haut;
+
+    for (int l = 0; aChange && l < kLignesVues; l++) {
       int ligne = haut + l;
       char num[3];
       num[0] = kHex[(ligne >> 4) & 15]; num[1] = kHex[ligne & 15]; num[2] = 0;
