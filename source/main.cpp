@@ -74,7 +74,6 @@ int main(void) {
   // Ecran du haut en bitmap 16 bits : on maitrise chaque pixel, ce qu'il faut
   // pour un rendu de tube. VRAM A lui suffit (256 x 192 x 2 = 96 Ko sur 128).
   powerOn(POWER_ALL_2D);
-  lcdMainOnTop();
   videoSetMode(MODE_5_2D);
   vramSetBankA(VRAM_A_MAIN_BG);
   int bg = bgInit(2, BgType_Bmp16, BgSize_B16_256x256, 0, 0);
@@ -90,7 +89,7 @@ int main(void) {
   trame();
 
   // ── Le moteur, celui de l'iPad, compile pour ARM ──────────────────────
-  md_replayer_init(32768);   // cadence de sortie de la DS
+  // md_replayer_init(32768);   ESSAI : moteur desactive   // cadence de sortie de la DS
 
   // ── Page SONG ─────────────────────────────────────────────────────────
   // Dix canaux : six FM (dont FM6 qui devient le PCM) et quatre PSG.
