@@ -158,6 +158,13 @@ constexpr int64_t kOneP = (int64_t)1 << kQP;
 int64_t g_pcm_pos = 0;
 int64_t g_pcm_step = 0;
 int g_pcm_vol = 255;   // 255 = unité ; au-delà, on pousse
+// Le même volume, prêt à l'emploi : v * g_pcm_vol_q >> 16 vaut v * vol / 255.
+//
+// Il y avait une DIVISION par 255 a chaque echantillon. L'ARM9 de la DS n'a pas
+// d'instruction de division : le compilateur y appelait une routine logicielle,
+// 53 267 fois par seconde des que le PCM jouait. C'est ce qui faisait tomber le
+// debit de 82 % a 54 % pendant les passages avec batterie.
+uint32_t g_pcm_vol_q = (255u * 65536u + 127u) / 255u;
 bool g_pcm_playing = false;
 uint8_t g_pcm_last = 0x80;        // dernière valeur écrite, silence = 0x80
 
@@ -191,7 +198,7 @@ inline void pcm_tick() {
   // un pilote qui pousse ses octets avant de les écrire, et ce qu'on retrouve
   // donc à l'identique dans une ROM.
   int v = (int)g_pcm_data[i] - 128;
-  v = (v * g_pcm_vol) / 255;
+  v = (int)(((int64_t)v * (int32_t)g_pcm_vol_q) >> 16);
   if (v > 127) v = 127;
   if (v < -128) v = -128;
   uint8_t out = (uint8_t)(v + 128);
@@ -414,6 +421,7 @@ void md_chip_reset(int output_sample_rate) {
   g_pcm_pos = 0;
   g_pcm_step = 0.0;
   g_pcm_vol = 255;
+  g_pcm_vol_q = (255u * 65536u + 127u) / 255u;
   g_pcm_playing = false;
   g_pcm_last = 0x80;
 
@@ -597,6 +605,7 @@ void md_chip_pcm_play(const uint8_t *data, uint32_t len, int32_t loop,
   g_pcm_loop = loop;
   g_pcm_step = step > 0 ? step : 0;
   g_pcm_vol = vol;
+  g_pcm_vol_q = ((uint32_t)(vol < 0 ? 0 : vol) * 65536u + 127u) / 255u;
   g_pcm_pos = 0.0;
   g_pcm_playing = (data != nullptr && len > 0 && step > 0);
 }
