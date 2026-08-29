@@ -225,8 +225,12 @@ int main(void) {
   //   SONG   CHAIN   PHRASE   INSTR
   // SELECT + haut monte a PROJECT, SELECT + bas redescend. Les pages CHAIN,
   // PHRASE et INSTR n'existent pas encore sur DS.
-  enum { PAGE_SONG = 0, PAGE_PROJECT = 2 };
+  enum { PAGE_SONG = 0, PAGE_CHAIN = 1, PAGE_PHRASE = 2, PAGE_PROJECT = 3 };
   int page = PAGE_SONG, pageVue = -1;
+  // Chaque page a son propre curseur, comme sur l'iPad. Le chain montre est
+  // celui pointe dans SONG ; la phrase montree est celle pointee dans CHAIN.
+  int chLigne = 0, chCol = 0;      // CHAIN : 16 lignes, 2 colonnes (phrase, tsp)
+  int phLigne = 0, phCol = 0;      // PHRASE : 16 lignes, 5 colonnes
   bool enLecture = false;
   int repereVu[10]; for (int i2 = 0; i2 < 10; i2++) repereVu[i2] = -1;
   const int kLignesVues = 26;
@@ -311,16 +315,32 @@ int main(void) {
 
     if (selTenu) {
       // SELECT + croix : on change de PAGE.
-      if (frappe & KEY_UP)   page = PAGE_PROJECT;
-      if (frappe & KEY_DOWN) page = PAGE_SONG;
-      // SELECT + gauche/droite circulerait dans la rangee du bas (CHAIN,
-      // PHRASE, INSTR) : ces pages n'existent pas encore ici.
+      // Rangee du bas : SONG - CHAIN - PHRASE. SELECT + haut monte a PROJECT,
+      // SELECT + bas en redescend.
+      static int derniereRangee = PAGE_SONG;
+      if (frappe & KEY_UP)   { if (page != PAGE_PROJECT) derniereRangee = page;
+                               page = PAGE_PROJECT; }
+      if (frappe & KEY_DOWN) { if (page == PAGE_PROJECT) page = derniereRangee; }
+      if (page != PAGE_PROJECT) {
+        if ((frappe & KEY_RIGHT) && page < PAGE_PHRASE) page++;
+        if ((frappe & KEY_LEFT)  && page > PAGE_SONG)   page--;
+      }
     } else {
       if (page == PAGE_SONG) {
         if (appui & KEY_LEFT)  curCanal = (curCanal + 9) % 10;
         if (appui & KEY_RIGHT) curCanal = (curCanal + 1) % 10;
         if (appui & KEY_UP)    curLigne = (curLigne + MD_SONG_ROWS - 1) % MD_SONG_ROWS;
         if (appui & KEY_DOWN)  curLigne = (curLigne + 1) % MD_SONG_ROWS;
+      } else if (page == PAGE_CHAIN) {
+        if (appui & KEY_UP)    chLigne = (chLigne + MD_ROWS_PER_CHAIN - 1) % MD_ROWS_PER_CHAIN;
+        if (appui & KEY_DOWN)  chLigne = (chLigne + 1) % MD_ROWS_PER_CHAIN;
+        if (appui & KEY_LEFT)  chCol = (chCol + 1) % 2;
+        if (appui & KEY_RIGHT) chCol = (chCol + 1) % 2;
+      } else if (page == PAGE_PHRASE) {
+        if (appui & KEY_UP)    phLigne = (phLigne + MD_ROWS_PER_PHRASE - 1) % MD_ROWS_PER_PHRASE;
+        if (appui & KEY_DOWN)  phLigne = (phLigne + 1) % MD_ROWS_PER_PHRASE;
+        if (appui & KEY_LEFT)  phCol = (phCol + 4) % 5;
+        if (appui & KEY_RIGHT) phCol = (phCol + 1) % 5;
       } else if (page == PAGE_PROJECT) {
         // A : charger le morceau de demonstration.
         if ((frappe & KEY_A) && !demoChargee) {
@@ -358,6 +378,17 @@ int main(void) {
       if (page == PAGE_SONG) {
         texte(52, 0, "SONG", kEntete);
         for (int c = 0; c < 10; c++) texte(4 + c * 6, 2, noms[c], kEntete);
+      } else if (page == PAGE_CHAIN) {
+        texte(51, 0, "CHAIN", kEntete);
+        texte(4, 2, "PHRASE", kEntete);
+        texte(14, 2, "TSP", kEntete);
+      } else if (page == PAGE_PHRASE) {
+        texte(50, 0, "PHRASE", kEntete);
+        texte(4,  2, "NOTE", kEntete);
+        texte(10, 2, "INS", kEntete);
+        texte(15, 2, "VEL", kEntete);
+        texte(20, 2, "CMD", kEntete);
+        texte(28, 2, "MD CMD", kEntete);
       } else {
         texte(50, 0, "PROJECT", kEntete);
         texte(2, 5, "DEMO", kEntete);
@@ -373,6 +404,78 @@ int main(void) {
     if (page == PAGE_PROJECT) {
       efface(9, 5, 14);
       texte(9, 5, demoChargee ? "CHARGEE" : "A POUR CHARGER", kAttenue);
+    }
+
+    if (page == PAGE_CHAIN || page == PAGE_PHRASE) {
+      // ── Quel chain, quelle phrase ? ──────────────────────────────────
+      // Le chain montre est celui pointe dans SONG ; la phrase montree est
+      // celle pointee dans CHAIN. C'est la chaine de navigation de LSDJ.
+      uint8_t noChain = md_replayer_get_song(curCanal, curLigne);
+      uint8_t noPhrase = MD_EMPTY; int8_t tsp0 = 0;
+      if (noChain != MD_EMPTY)
+        md_replayer_get_chain(noChain, chLigne, &noPhrase, &tsp0);
+
+      char t[8];
+      efface(20, 0, 12);
+      if (page == PAGE_CHAIN) {
+        t[0]='C'; t[1]='H'; t[2]=' ';
+        if (noChain == MD_EMPTY) { t[3]='-'; t[4]='-'; }
+        else { t[3]=kHex[(noChain>>4)&15]; t[4]=kHex[noChain&15]; }
+        t[5]=0; texte(20, 0, t, kEntete);
+      } else {
+        t[0]='P'; t[1]='H'; t[2]=' ';
+        if (noPhrase == MD_EMPTY) { t[3]='-'; t[4]='-'; }
+        else { t[3]=kHex[(noPhrase>>4)&15]; t[4]=kHex[noPhrase&15]; }
+        t[5]=0; texte(20, 0, t, kEntete);
+      }
+
+      const int nl = (page == PAGE_CHAIN) ? MD_ROWS_PER_CHAIN : MD_ROWS_PER_PHRASE;
+      for (int l = 0; l < nl; l++) {
+        int lig = 4 + l;
+        char num[3] = { kHex[(l>>4)&15], kHex[l&15], 0 };
+        efface(0, lig, 2);
+        texte(0, lig, num,
+              (page == PAGE_CHAIN ? l == chLigne : l == phLigne) ? kEntete : kAttenue);
+
+        if (page == PAGE_CHAIN) {
+          uint8_t ph = MD_EMPTY; int8_t tsp = 0;
+          if (noChain != MD_EMPTY) md_replayer_get_chain(noChain, l, &ph, &tsp);
+          char a[3], b[3];
+          if (ph == MD_EMPTY) { a[0]='-'; a[1]='-'; } else { a[0]=kHex[(ph>>4)&15]; a[1]=kHex[ph&15]; }
+          a[2]=0;
+          uint8_t u = (uint8_t)tsp;
+          b[0]=kHex[(u>>4)&15]; b[1]=kHex[u&15]; b[2]=0;
+          efface(5, lig, 2);  texte(5, lig, a, (l==chLigne && chCol==0) ? kEntete : kAttenue);
+          efface(14, lig, 2); texte(14, lig, b, (l==chLigne && chCol==1) ? kEntete : kAttenue);
+        } else {
+          uint8_t no=0,ins=0,vel=0,cmd=MD_EMPTY,cv=0,mc=MD_EMPTY,mv=0;
+          if (noPhrase != MD_EMPTY)
+            md_replayer_get_phrase(noPhrase, l, &no,&ins,&vel,&cmd,&cv,&mc,&mv);
+          static const char *gam[12] = {"C-","C#","D-","D#","E-","F-",
+                                        "F#","G-","G#","A-","A#","B-"};
+          char nt[4];
+          if (no == 0) { nt[0]='-'; nt[1]='-'; nt[2]='-'; }
+          else if (no == MD_EMPTY) { nt[0]='O'; nt[1]='F'; nt[2]='F'; }
+          else { const char *g = gam[(no-1)%12]; nt[0]=g[0]; nt[1]=g[1];
+                 nt[2]=(char)('0'+((no-1)/12)); }
+          nt[3]=0;
+          char si[3]={'-','-',0}, sv[3]={'-','-',0};
+          if (ins) { si[0]=kHex[(ins>>4)&15]; si[1]=kHex[ins&15]; }
+          if (vel) { sv[0]=kHex[(vel>>4)&15]; sv[1]=kHex[vel&15]; }
+          char sc[4]={'-','-','-',0}, sm[5]={'-','-','-','-',0};
+          if (cmd != MD_EMPTY) { sc[0]=(char)cmd; sc[1]=kHex[(cv>>4)&15]; sc[2]=kHex[cv&15]; }
+          if (mc != MD_EMPTY) { sm[0]=kHex[(mc>>4)&15]; sm[1]=kHex[mc&15];
+                                sm[2]=kHex[(mv>>4)&15]; sm[3]=kHex[mv&15]; }
+          const int cols[5] = {4, 10, 15, 20, 28};
+          const int larg[5] = {3, 2, 2, 3, 4};
+          const char *txt[5] = {nt, si, sv, sc, sm};
+          for (int k = 0; k < 5; k++) {
+            efface(cols[k], lig, larg[k]);
+            texte(cols[k], lig, txt[k],
+                  (l==phLigne && phCol==k) ? kEntete : kAttenue);
+          }
+        }
+      }
     }
 
     if (page == PAGE_SONG) {
