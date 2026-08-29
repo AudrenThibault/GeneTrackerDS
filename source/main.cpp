@@ -255,14 +255,16 @@ int main(void) {
   //   SONG   CHAIN   PHRASE   INSTR
   // SELECT + haut monte a PROJECT, SELECT + bas redescend. Les pages CHAIN,
   // PHRASE et INSTR n'existent pas encore sur DS.
-  enum { PAGE_SONG = 0, PAGE_CHAIN = 1, PAGE_PHRASE = 2, PAGE_PROJECT = 3 };
+  enum { PAGE_SONG = 0, PAGE_CHAIN = 1, PAGE_PHRASE = 2,
+         PAGE_INSTR = 3, PAGE_PROJECT = 4 };
   int page = PAGE_SONG, pageVue = -1;
   // Chaque page a son propre curseur, comme sur l'iPad. Le chain montre est
   // celui pointe dans SONG ; la phrase montree est celle pointee dans CHAIN.
   int dernierChain = 0, dernierePhrase = 0, derniereNote = 48;  // C-4
   int derA = -1; unsigned derAt = 0;   // pour detecter le double appui
   int chLigne = 0, chCol = 0;      // CHAIN : 16 lignes, 2 colonnes (phrase, tsp)
-  int phLigne = 0, phCol = 0;      // PHRASE : 16 lignes, 5 colonnes
+  int phLigne = 0, phCol = 0;      // PHRASE : 16 lignes, 6 colonnes
+  int inLigne = 0, inCol = 0;      // INSTR : parametres en lignes, 4 operateurs
   bool enLecture = false;
   int repereVu[10]; for (int i2 = 0; i2 < 10; i2++) repereVu[i2] = -1;
   const int kLignesVues = 26;
@@ -354,7 +356,7 @@ int main(void) {
                                page = PAGE_PROJECT; }
       if (frappe & KEY_DOWN) { if (page == PAGE_PROJECT) page = derniereRangee; }
       if (page != PAGE_PROJECT) {
-        if ((frappe & KEY_RIGHT) && page < PAGE_PHRASE) page++;
+        if ((frappe & KEY_RIGHT) && page < PAGE_INSTR) page++;
         if ((frappe & KEY_LEFT)  && page > PAGE_SONG)   page--;
       }
     } else {
@@ -385,6 +387,32 @@ int main(void) {
               int t = borne((int)tsp + sens * (grand ? 12 : 1), -128, 127);
               md_replayer_set_chain(noChain, chLigne, ph, (int8_t)t);
             }
+          }
+        } else if (page == PAGE_INSTR) {
+          int ins = 1;
+          uint8_t noChain = md_replayer_get_song(curCanal, curLigne);
+          uint8_t ph = MD_EMPTY; int8_t tz = 0;
+          if (noChain != MD_EMPTY) md_replayer_get_chain(noChain, chLigne, &ph, &tz);
+          if (ph != MD_EMPTY) {
+            uint8_t no,i2,vel,cmd,cv,mc,mv;
+            md_replayer_get_phrase(ph, phLigne, &no,&i2,&vel,&cmd,&cv,&mc,&mv);
+            if (i2) ins = i2;
+          }
+          const int pas = sens * (grand ? 16 : 1);
+          if (inLigne < 2) {
+            static const int glob[2] = { MD_GEN_PROP_ALGORITHM, MD_GEN_PROP_FEEDBACK };
+            int v = borne(md_replayer_get_instr_gen_val(ins, glob[inLigne]) + pas, 0, 7);
+            md_replayer_set_instr_gen_val(ins, glob[inLigne], v);
+          } else {
+            static const int prop[9] = {
+              MD_OP_PROP_MULTIPLE, MD_OP_PROP_DETUNE, MD_OP_PROP_TOTAL_LEVEL,
+              MD_OP_PROP_ATTACK, MD_OP_PROP_DECAY, MD_OP_PROP_SUSTAIN_LEVEL,
+              MD_OP_PROP_SUSTAIN_RATE, MD_OP_PROP_RELEASE, MD_OP_PROP_KEY_SCALE };
+            static const int maxi[9] = { 15, 7, 127, 31, 31, 15, 31, 15, 3 };
+            const int k = inLigne - 2;
+            int v = borne(md_replayer_get_instr_op_val(ins, inCol, prop[k]) + pas,
+                          0, maxi[k]);
+            md_replayer_set_instr_op_val(ins, inCol, prop[k], v);
           }
         } else if (page == PAGE_PHRASE) {
           uint8_t noChain = md_replayer_get_song(curCanal, curLigne);
@@ -423,6 +451,14 @@ int main(void) {
         if (appui & KEY_DOWN)  phLigne = (phLigne + 1) % MD_ROWS_PER_PHRASE;
         if (appui & KEY_LEFT)  phCol = (phCol + 5) % 6;
         if (appui & KEY_RIGHT) phCol = (phCol + 1) % 6;
+      } else if (page == PAGE_INSTR) {
+        // 2 lignes globales (algorithme, retroaction) puis 9 par operateur.
+        if (appui & KEY_UP)    inLigne = (inLigne + 10) % 11;
+        if (appui & KEY_DOWN)  inLigne = (inLigne + 1) % 11;
+        if (inLigne >= 2) {
+          if (appui & KEY_LEFT)  inCol = (inCol + 3) % 4;
+          if (appui & KEY_RIGHT) inCol = (inCol + 1) % 4;
+        }
       } else if (page == PAGE_PROJECT) {
         // A : charger le morceau de demonstration.
         if ((frappe & KEY_A) && !demoChargee) {
@@ -594,6 +630,18 @@ int main(void) {
         texte(51, 0, "CHAIN", kEntete);
         texte(4, 2, "PHRASE", kEntete);
         texte(14, 2, "TSP", kEntete);
+      } else if (page == PAGE_INSTR) {
+        texte(51, 0, "INSTR", kEntete);
+        texte(2, 4, "ALGORITHME", kEntete);
+        texte(2, 5, "RETROACTION", kEntete);
+        texte(2, 7, "OP", kEntete);
+        for (int o = 0; o < 4; o++) {
+          char t[2] = { (char)('1'+o), 0 };
+          texte(20 + o * 8, 7, t, kEntete);
+        }
+        static const char *par[9] = {"MUL","DET","TL ","AR ","D1R","D1L","D2R",
+                                     "RR ","RS "};
+        for (int k = 0; k < 9; k++) texte(2, 8 + k, par[k], kEntete);
       } else if (page == PAGE_PHRASE) {
         texte(50, 0, "PHRASE", kEntete);
         texte(4,  2, "NOTE", kEntete);
@@ -616,6 +664,50 @@ int main(void) {
     if (page == PAGE_PROJECT) {
       efface(9, 5, 14);
       texte(9, 5, demoChargee ? "CHARGEE" : "A POUR CHARGER", kAttenue);
+    }
+
+    if (page == PAGE_INSTR) {
+      // L'instrument montre est celui de la ligne de phrase sous le curseur,
+      // ou a defaut le premier. C'est la chaine de navigation de LSDJ.
+      int ins = 1;
+      {
+        uint8_t noChain = md_replayer_get_song(curCanal, curLigne);
+        uint8_t ph = MD_EMPTY; int8_t t0 = 0;
+        if (noChain != MD_EMPTY) md_replayer_get_chain(noChain, chLigne, &ph, &t0);
+        if (ph != MD_EMPTY) {
+          uint8_t no,i2,vel,cmd,cv,mc,mv;
+          md_replayer_get_phrase(ph, phLigne, &no,&i2,&vel,&cmd,&cv,&mc,&mv);
+          if (i2) ins = i2;
+        }
+      }
+      char t[8];
+      efface(20, 0, 10);
+      t[0]='I'; t[1]='N'; t[2]='S'; t[3]=' ';
+      t[4]=kHex[(ins>>4)&15]; t[5]=kHex[ins&15]; t[6]=0;
+      texte(20, 0, t, kEntete);
+
+      // Les deux parametres globaux.
+      static const int glob[2] = { MD_GEN_PROP_ALGORITHM, MD_GEN_PROP_FEEDBACK };
+      for (int k = 0; k < 2; k++) {
+        int v = md_replayer_get_instr_gen_val(ins, glob[k]);
+        char d[3] = { kHex[(v>>4)&15], kHex[v&15], 0 };
+        efface(20, 4 + k, 2);
+        texte(20, 4 + k, d, (inLigne == k) ? kEntete : kAttenue);
+      }
+
+      // Les neuf parametres, pour chacun des quatre operateurs.
+      static const int prop[9] = {
+        MD_OP_PROP_MULTIPLE, MD_OP_PROP_DETUNE, MD_OP_PROP_TOTAL_LEVEL,
+        MD_OP_PROP_ATTACK, MD_OP_PROP_DECAY, MD_OP_PROP_SUSTAIN_LEVEL,
+        MD_OP_PROP_SUSTAIN_RATE, MD_OP_PROP_RELEASE, MD_OP_PROP_KEY_SCALE };
+      for (int k = 0; k < 9; k++)
+        for (int o = 0; o < 4; o++) {
+          int v = md_replayer_get_instr_op_val(ins, o, prop[k]);
+          char d[3] = { kHex[(v>>4)&15], kHex[v&15], 0 };
+          efface(20 + o * 8, 8 + k, 2);
+          texte(20 + o * 8, 8 + k, d,
+                (inLigne == k + 2 && inCol == o) ? kEntete : kAttenue);
+        }
     }
 
     if (page == PAGE_CHAIN || page == PAGE_PHRASE) {
