@@ -20,6 +20,10 @@
 #include "morceau_dmf.h"
 
 extern "C" {
+#include "MegaDrive/md_chip.h"
+}
+
+extern "C" {
 #include "CustomReplayer/md_replayer.h"
 }
 
@@ -86,7 +90,14 @@ static void efface(int col, int lig, int n) {
 // Le moteur remplit depuis la BOUCLE PRINCIPALE, jamais depuis une
 // interruption : c'est ce que suppose md_lock.h, qui n'installe aucun verrou
 // sur DS. Si ca changeait, il faudrait le corriger la-bas.
-#define SON_HZ      32768
+// La cadence de sortie est celle de la PUCE, pas 32 768.
+//
+// Avec la puce a horloge/288 = 26 633 Hz, sortir a 32 768 obligeait a
+// interpoler vers le haut : un travail par echantillon de sortie, pour aucun
+// detail supplementaire — il n'y a rien au-dessus de 13 kHz a restituer. En
+// sortant a la cadence de la puce, c'est un pour un : plus d'interpolation, et
+// 19 % d'echantillons de sortie en moins a produire.
+#define SON_HZ      (MD_YM2612_CLOCK / MD_YM_DIVISEUR)
 #define SON_IMAGE   (SON_HZ / 60)          // echantillons par image
 // L'anneau est une PUISSANCE DE DEUX : l'ARM9 n'a pas d'instruction de
 // division, donc un modulo par une taille quelconque appelle une routine
@@ -304,10 +315,10 @@ int main(void) {
                   (char)('0'+(liv/10000)%10), (char)('0'+(liv/1000)%10),
                   (char)('0'+(liv/100)%10),   (char)('0'+(liv/10)%10),
                   (char)('0'+liv%10),
-                  '/','3','2','7','6','8',' ',
+                  '/','1','9','9','7','5',' ',
                   'T','P','S',(char)('0'+a/10),(char)('0'+a%10),'%', 0};
     efface(12, 0, 23);
-    texte(12, 0, m, livresVu < 32000 ? rvb(31, 10, 8) : kEntete);
+    texte(12, 0, m, livresVu < (unsigned)(SON_HZ - 800) ? rvb(31, 10, 8) : kEntete);
 
     // On ne repeint QUE si quelque chose a bouge.
     //

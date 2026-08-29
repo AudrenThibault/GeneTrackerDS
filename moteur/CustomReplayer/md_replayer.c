@@ -350,7 +350,9 @@ static void md_apply_pitch(int ch) {
   }
 
   // ── YM2612 : on choisit le bloc pour garder le F-Num dans une octave ──
-  double k = hz * 144.0 * 2097152.0 / (double)MD_YM2612_CLOCK; // = fnum si bloc 0
+  // MD_YM_DIVISEUR et non 144 : la puce tourne a cadence reduite sur DS, et le
+  // F-Num doit suivre, sinon tout le morceau descendrait d'une octave.
+  double k = hz * (double)MD_YM_DIVISEUR * 2097152.0 / (double)MD_YM2612_CLOCK;
   int block = 0;
   while (k >= 1234.0 && block < 7) {
     k *= 0.5;

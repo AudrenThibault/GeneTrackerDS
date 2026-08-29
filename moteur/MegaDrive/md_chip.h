@@ -25,6 +25,28 @@ extern "C" {
 // Horloge du YM2612 sur Mega Drive NTSC (master 53.693175 MHz / 7).
 #define MD_YM2612_CLOCK 7670454
 
+// ── Cadence de la puce, divisee par deux (specialisation DS) ────────────────
+// Le YM2612 tourne nativement a horloge/144, soit 53 267 Hz. Sur l'ARM9 de la
+// DSi, emuler ca demande le double du temps disponible : mesure, on produit
+// ~17 000 echantillons par seconde pour 32 768 necessaires.
+//
+// On fait donc tourner la puce a horloge/384, soit 19 975 Hz. A horloge/288
+// (moitie de la cadence native) on atteignait 90 % du temps reel : mieux, mais
+// ca sautait encore. Un cran de plus donne la marge. Deux compensations sont indispensables, sans quoi
+// tout serait faux :
+//   - la HAUTEUR : le moteur calcule ses F-Num a partir de cette cadence, donc
+//     il faut lui donner la meme constante (voir md_replayer.c) ;
+//   - les ENVELOPPES : elles avancent par image de puce, donc elles seraient
+//     trop lentes dans le rapport de la reduction. Le YM2612 double sa vitesse
+//     tous les +4 sur le registre de vitesse : pour un rapport de 384/144 =
+//     2,67, il faut +4 x log2(2,67) = +5,7, arrondi a +6 (voir
+//     md_chip_ym_write). L'arrondi rend les enveloppes 4 % trop rapides.
+//
+// Le prix, assume : le plafond de frequences tombe de 26 a 13 kHz, et ce qui
+// vit au-dessus se REPLIE dans l'audible. Ca s'entend sur une FM tres modulee.
+// Remettre 144 ici quand le coeur FM sera assez rapide.
+#define MD_YM_DIVISEUR 384
+
 // Horloge du PSG sur Mega Drive NTSC (master / 15).
 #define MD_PSG_CLOCK 3579545
 
