@@ -10,6 +10,8 @@
 // ============================================================================
 #include <nds.h>
 #include <calico/system/thread.h>
+#include <calico/nds/scfg.h>
+#include <calico/nds/system.h>
 #include <maxmod9.h>
 #include <stdio.h>
 #include <string.h>
@@ -135,6 +137,18 @@ static void trame() {
 }
 
 int main(void) {
+  // ── Horloge : passer la DSi a 134 MHz ─────────────────────────────────
+  // La DSi peut faire tourner son ARM9 deux fois plus vite qu'une DS, mais
+  // PERSONNE ne l'enclenche : ni calico, ni libnds. Le registre existe, il
+  // faut l'ecrire soi-meme. Sans ca, une cartouche marquee DSi tourne quand
+  // meme a 67 MHz — c'est a cette vitesse-la qu'ont ete faites toutes les
+  // mesures precedentes, et c'est ce qui les rendait trop pessimistes.
+  //
+  // En mode DS pur le registre n'existe pas : on ne l'ecrit que si la console
+  // est bien en mode TWL, sinon on planterait.
+  const bool modeDSi = systemIsTwlMode();
+  if (modeDSi) REG_SCFG_CLK |= SCFG_CLK_CPU_134MHz;
+
   // ── Video ─────────────────────────────────────────────────────────────
   // Ecran du haut en bitmap 16 bits : on maitrise chaque pixel, ce qu'il faut
   // pour un rendu de tube. VRAM A lui suffit (256 x 192 x 2 = 96 Ko sur 128).
@@ -182,6 +196,9 @@ int main(void) {
   static const char *noms[10] = {"FM1","FM2","FM3","FM4","FM5","PCM",
                                  "SQ1","SQ2","SQ3","NOI"};
   texte(0, 0, charge ? "MD TRACKER DS" : "DMF REFUSE", kEntete);
+  // On affiche la vitesse reelle : c'est elle qui decide de tout le reste.
+  texte(0, 1, modeDSi ? "DSI 134MHZ" : "DS 67MHZ",
+        modeDSi ? rvb(10, 31, 14) : rvb(31, 20, 8));
   {
     // Le tempo relu du morceau : s'il est aberrant, c'est lui qui mettait le
     // nombre d'echantillons par tic a zero.
