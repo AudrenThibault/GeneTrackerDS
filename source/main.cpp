@@ -69,9 +69,12 @@ static void texte(int col, int lig, const char *s, u16 couleur) {
 
 // Efface une zone de texte avant de la reecrire.
 static void efface(int col, int lig, int n) {
-  int x0 = col * MD_CELL_W, y0 = lig * MD_CELL_H;
+  // On efface UNE COLONNE DE PIXELS DE PLUS a gauche : le pave du curseur
+  // deborde d'un pixel de ce cote, et sans ca il laissait une trainee derriere
+  // lui a chaque deplacement.
+  int x0 = col * MD_CELL_W - 1, y0 = lig * MD_CELL_H;
   for (int y = y0; y < y0 + MD_CELL_H; y++)
-    for (int x = x0; x < x0 + n * MD_CELL_W; x++)
+    for (int x = x0; x < x0 + n * MD_CELL_W + 1; x++)
       pixel(x, y, (y & 1) ? rvb(0, 1, 1) : kFond);
 }
 
@@ -188,11 +191,9 @@ int main(void) {
   // expliquait a la fois l'absence de son ET la charge processeur a zero.
   md_replayer_new_empty();
 
-  // Le morceau de l'iPad, embarque tel quel. C'est LE test : si ce .dmf
-  // s'ouvre et sonne ici, la compatibilite des projets entre les deux trackers
-  // est prouvee, et la mesure de charge porte enfin sur de la vraie musique.
-  md_dmf_report_t rapport;
-  bool charge = md_replayer_import_dmf(morceau_dmf, morceau_dmf_len, &rapport);
+  // Le morceau de demonstration est EMBARQUE mais ne se charge pas tout seul :
+  // on demarre sur un projet vide, et il s'ouvre depuis la page PROJECT.
+  bool demoChargee = false;
 
   // ── Le son ────────────────────────────────────────────────────────────
   soundEnable();
@@ -200,32 +201,10 @@ int main(void) {
   soundPlaySample(g_gauche, SoundFormat_16Bit, SON_ANNEAU * 2, SON_HZ, 127, 0,   true, 0);
   soundPlaySample(g_droite, SoundFormat_16Bit, SON_ANNEAU * 2, SON_HZ, 127, 127, true, 0);
 
-  if (charge) {
-    md_replayer_set_play_scope(MD_SCOPE_SONG, 0, 0);
-    md_replayer_play_from(0);
-    md_replayer_play();
-  }
+  // Pas de lecture automatique : c'est START qui la lance.
 
-  // ── Page SONG ─────────────────────────────────────────────────────────
-  // Dix canaux : six FM (dont FM6 qui devient le PCM) et quatre PSG.
   static const char *noms[10] = {"FM1","FM2","FM3","FM4","FM5","PCM",
                                  "PS1","PS2","PS3","NOI"};
-  texte(0, 0, charge ? "MD TRACKER DS" : "DMF REFUSE", kEntete);
-  // On affiche la vitesse reelle : c'est elle qui decide de tout le reste.
-  texte(0, 1, modeDSi ? "DSI 134MHZ" : "DS 67MHZ",
-        modeDSi ? rvb(10, 31, 14) : rvb(31, 20, 8));
-  {
-    // Le tempo relu du morceau : s'il est aberrant, c'est lui qui mettait le
-    // nombre d'echantillons par tic a zero.
-    int bpm = (int)md_replayer_get_bpm();
-    if (bpm < 0) bpm = 0; if (bpm > 999) bpm = 999;
-    char t[10] = {'B','P','M',' ',
-                  (char)('0'+(bpm/100)%10), (char)('0'+(bpm/10)%10),
-                  (char)('0'+bpm%10), 0};
-    texte(34, 0, t, kEntete);
-  }
-  texte(52, 0, "SONG", kEntete);
-  for (int c = 0; c < 10; c++) texte(4 + c * 6, 2, noms[c], kEntete);
 
   // ── Mesure ────────────────────────────────────────────────────────────
   // La precedente mesurait un pourcentage et affichait toujours 000 : elle ne
@@ -241,6 +220,15 @@ int main(void) {
   unsigned horloge = 0, tPrecSon = timerTick(2);
 
   int curCanal = 0, curLigne = 0, haut = 0;
+  // Carte des pages, comme sur l'iPad :
+  //            PROJECT
+  //   SONG   CHAIN   PHRASE   INSTR
+  // SELECT + haut monte a PROJECT, SELECT + bas redescend. Les pages CHAIN,
+  // PHRASE et INSTR n'existent pas encore sur DS.
+  enum { PAGE_SONG = 0, PAGE_PROJECT = 2 };
+  int page = PAGE_SONG, pageVue = -1;
+  bool enLecture = false;
+  int repereVu[10]; for (int i2 = 0; i2 < 10; i2++) repereVu[i2] = -1;
   const int kLignesVues = 26;
 
   // On ne SORT PAS de main() sur une console : il n'y a nulle part ou revenir,
@@ -317,11 +305,41 @@ int main(void) {
     }
 
     scanKeys();
-    int appui = keysDownRepeat();
-    if (appui & KEY_LEFT)  curCanal = (curCanal + 9) % 10;
-    if (appui & KEY_RIGHT) curCanal = (curCanal + 1) % 10;
-    if (appui & KEY_UP)    curLigne = (curLigne + MD_SONG_ROWS - 1) % MD_SONG_ROWS;
-    if (appui & KEY_DOWN)  curLigne = (curLigne + 1) % MD_SONG_ROWS;
+    const int appui = keysDownRepeat();
+    const int frappe = keysDown();
+    const bool selTenu = (keysHeld() & KEY_SELECT) != 0;
+
+    if (selTenu) {
+      // SELECT + croix : on change de PAGE.
+      if (frappe & KEY_UP)   page = PAGE_PROJECT;
+      if (frappe & KEY_DOWN) page = PAGE_SONG;
+      // SELECT + gauche/droite circulerait dans la rangee du bas (CHAIN,
+      // PHRASE, INSTR) : ces pages n'existent pas encore ici.
+    } else {
+      if (page == PAGE_SONG) {
+        if (appui & KEY_LEFT)  curCanal = (curCanal + 9) % 10;
+        if (appui & KEY_RIGHT) curCanal = (curCanal + 1) % 10;
+        if (appui & KEY_UP)    curLigne = (curLigne + MD_SONG_ROWS - 1) % MD_SONG_ROWS;
+        if (appui & KEY_DOWN)  curLigne = (curLigne + 1) % MD_SONG_ROWS;
+      } else if (page == PAGE_PROJECT) {
+        // A : charger le morceau de demonstration.
+        if ((frappe & KEY_A) && !demoChargee) {
+          md_dmf_report_t rapport;
+          demoChargee = md_replayer_import_dmf(morceau_dmf, morceau_dmf_len, &rapport);
+          curLigne = 0; haut = 0; curCanal = 0;
+        }
+      }
+      // START lance et arrete la lecture, depuis n'importe quelle page.
+      if (frappe & KEY_START) {
+        if (enLecture) { md_replayer_stop(); enLecture = false; }
+        else {
+          md_replayer_set_play_scope(MD_SCOPE_SONG, 0, 0);
+          md_replayer_play_from(page == PAGE_SONG ? curLigne : 0);
+          md_replayer_play();
+          enLecture = true;
+        }
+      }
+    }
     // La vue suit le curseur sans jamais le coller au bord.
     if (curLigne < haut + 2) haut = curLigne - 2;
     if (curLigne > haut + kLignesVues - 3) haut = curLigne - kLignesVues + 3;
@@ -329,28 +347,35 @@ int main(void) {
     if (haut > MD_SONG_ROWS - kLignesVues) haut = MD_SONG_ROWS - kLignesVues;
 
     // ── Redessin ────────────────────────────────────────────────────────
-    // Le chiffre qui tranche : livres/attendus. 32768 = on tient.
-    unsigned liv = livresVu > 99999 ? 99999 : livresVu;
-    int a = partAudio > 99 ? 99 : partAudio;
-    char m[32] = {'L','I','V',' ',
-                  (char)('0'+(liv/10000)%10), (char)('0'+(liv/1000)%10),
-                  (char)('0'+(liv/100)%10),   (char)('0'+(liv/10)%10),
-                  (char)('0'+liv%10),
-                  '/','2','6','6','3','3',' ',
-                  'T','P','S',(char)('0'+a/10),(char)('0'+a%10),'%',
-                  ' ','E','C','R',
-                  (char)('0'+(ecretesVu/1000)%10),(char)('0'+(ecretesVu/100)%10),
-                  (char)('0'+(ecretesVu/10)%10),(char)('0'+ecretesVu%10), 0};
-    efface(12, 0, 31);
-    texte(12, 0, m, livresVu < (unsigned)(SON_HZ - 800) ? rvb(31, 10, 8) : kEntete);
-
-    // ── Redessin ────────────────────────────────────────────────────────
-    //
-    // Deplacer le curseur repeignait les 260 cases, pixel par pixel, et ce
-    // temps-la etait vole a l'audio : le son sautait des qu'on bougeait a la
-    // croix. On ne repeint donc que ce qui change VRAIMENT — deux cases quand
-    // le curseur se deplace, tout l'ecran seulement quand la vue defile.
     static int vuCanal = -1, vuLigne = -1, vuHaut = -1;
+
+    if (page != pageVue) {
+      // Changement de page : on repeint tout, en-tete compris.
+      trame();
+      texte(0, 0, "MD TRACKER DS", kEntete);
+      texte(0, 1, modeDSi ? "DSI 134MHZ" : "DS 67MHZ",
+            modeDSi ? rvb(10, 31, 14) : rvb(31, 20, 8));
+      if (page == PAGE_SONG) {
+        texte(52, 0, "SONG", kEntete);
+        for (int c = 0; c < 10; c++) texte(4 + c * 6, 2, noms[c], kEntete);
+      } else {
+        texte(50, 0, "PROJECT", kEntete);
+        texte(2, 5, "DEMO", kEntete);
+        texte(9, 5, demoChargee ? "CHARGEE" : "A POUR CHARGER", kAttenue);
+        texte(2, 7, "SELECT + BAS   RETOUR A SONG", kAttenue);
+        texte(2, 8, "START          JOUER / ARRETER", kAttenue);
+      }
+      pageVue = page;
+      vuCanal = -1; vuLigne = -1; vuHaut = -1;
+      for (int c = 0; c < 10; c++) repereVu[c] = -1;
+    }
+
+    if (page == PAGE_PROJECT) {
+      efface(9, 5, 14);
+      texte(9, 5, demoChargee ? "CHARGEE" : "A POUR CHARGER", kAttenue);
+    }
+
+    if (page == PAGE_SONG) {
 
     // Dessine une case : le fond, le curseur eventuel, puis la valeur.
     auto dessineCase = [&](int c, int ligne, bool ici) {
@@ -380,22 +405,40 @@ int main(void) {
     };
 
     if (haut != vuHaut) {
-      // La vue a defile : il faut tout repeindre.
       for (int l = 0; l < kLignesVues; l++) {
         dessineNumero(haut + l);
         for (int c = 0; c < 10; c++)
           dessineCase(c, haut + l, c == curCanal && haut + l == curLigne);
       }
+      for (int c = 0; c < 10; c++) repereVu[c] = -1;
     } else if (curCanal != vuCanal || curLigne != vuLigne) {
-      // Seul le curseur a bouge : deux cases, et deux numeros de ligne.
-      if (vuCanal >= 0) {
-        dessineCase(vuCanal, vuLigne, false);
-        dessineNumero(vuLigne);
-      }
+      if (vuCanal >= 0) { dessineCase(vuCanal, vuLigne, false); dessineNumero(vuLigne); }
       dessineCase(curCanal, curLigne, true);
       dessineNumero(curLigne);
     }
     vuCanal = curCanal; vuLigne = curLigne; vuHaut = haut;
+
+    // ── Les reperes de lecture ────────────────────────────────────────
+    // Un chevron ROUGE devant la case que chaque canal est en train de jouer,
+    // comme sur l'iPad. On ne redessine que ceux qui ont bouge.
+    for (int c = 0; c < 10; c++) {
+      int r = enLecture ? md_replayer_play_song_row(c) : -1;
+      if (r == repereVu[c]) continue;
+      if (repereVu[c] >= 0) {
+        int l = repereVu[c] - haut;
+        if (l >= 0 && l < kLignesVues) efface(3 + c * 6, 4 + l, 1);
+      }
+      if (r >= 0) {
+        int l = r - haut;
+        if (l >= 0 && l < kLignesVues) {
+          efface(3 + c * 6, 4 + l, 1);
+          texte(3 + c * 6, 4 + l, ">", rvb(31, 6, 6));
+        }
+      }
+      repereVu[c] = r;
+    }
+
+    }  // fin de la page SONG
 
     swiWaitForVBlank();
   }
