@@ -469,24 +469,33 @@ void md_chip_set_write_hook(md_write_hook_t hook, void *ctx) {
 }
 
 // Compense la demi-cadence sur les registres de vitesse d'enveloppe.
-// AR (50-5F), D1R (60-6F) et D2R (70-7F) portent une vitesse sur 5 bits :
-// +4 double la vitesse. Pour un rapport de MD_YM_DIVISEUR/144 il faut donc
-// 4 x log2(rapport), soit +6 pour 384. RR (80-8F) n'a que 4 bits et sa vitesse
-// effective vaut 2*RR+1 : la moitie suffit sur ce champ-la.
+// ⚠️ Attention au facteur DEUX entre le champ de registre et la vitesse
+// effective. ymfm calcule :
+//     AR, D1R, D2R :  effective = champ x 2 + key-scaling
+//     RR           :  effective = champ x 4 + 2 + key-scaling
+// et c'est la vitesse EFFECTIVE qui double tous les +4.
+//
+// J'ajoutais d'abord +4 au champ, ce qui faisait +8 en effectif, soit x4 au
+// lieu de x2 : les enveloppes tournaient deux fois trop vite et les notes
+// s'eteignaient trop tot. C'est ce qui rendait la FM mauvaise alors que les
+// hauteurs etaient justes.
+//
+// MD_ENV_COMP est donc exprime en vitesse EFFECTIVE, et on en met la moitie
+// dans les champs sur 5 bits, le quart dans celui sur 4 bits.
 // +4 par doublement de la reduction : 288 -> +4, 384 -> +6, 576 -> +8.
-// 4 x log2(diviseur/144), arrondi.
+// Addition en vitesse EFFECTIVE : 4 par doublement de la reduction.
 #define MD_ENV_COMP ((MD_YM_DIVISEUR == 288) ? 4 : (MD_YM_DIVISEUR == 384) ? 6 : \
                      (MD_YM_DIVISEUR == 480) ? 7 : (MD_YM_DIVISEUR == 576) ? 8 : 0)
 
 static uint8_t md_compense_enveloppe(uint8_t reg, uint8_t val) {
   if (MD_YM_DIVISEUR == 144) return val;           // rien a compenser
   if (reg >= 0x50 && reg <= 0x7F) {
-    uint32_t r = (val & 0x1F) + MD_ENV_COMP;
+    uint32_t r = (val & 0x1F) + MD_ENV_COMP / 2;   // champ x2 -> moitie
     if (r > 31) r = 31;
     return (uint8_t)((val & 0xE0) | r);
   }
   if (reg >= 0x80 && reg <= 0x8F) {
-    uint32_t r = (val & 0x0F) + MD_ENV_COMP / 2;
+    uint32_t r = (val & 0x0F) + MD_ENV_COMP / 4;   // champ x4 -> quart
     if (r > 15) r = 15;
     return (uint8_t)((val & 0xF0) | r);
   }
