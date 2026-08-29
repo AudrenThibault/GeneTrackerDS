@@ -344,42 +344,58 @@ int main(void) {
     efface(12, 0, 31);
     texte(12, 0, m, livresVu < (unsigned)(SON_HZ - 800) ? rvb(31, 10, 8) : kEntete);
 
-    // On ne repeint QUE si quelque chose a bouge.
+    // ── Redessin ────────────────────────────────────────────────────────
     //
-    // Mesure a l'appui : en repeignant les 260 cases a chaque tour, la boucle
-    // tombait a 11 tours par seconde au lieu de 60, dont 11 % seulement dans le
-    // rendu audio. Ce n'est donc PAS l'emulation du YM2612 qui coute cher —
-    // c'est ce dessin, fait pixel par pixel. Et un tampon audio nourri 11 fois
-    // par seconde se vide : c'est ce qui rendait le son inecoutable.
+    // Deplacer le curseur repeignait les 260 cases, pixel par pixel, et ce
+    // temps-la etait vole a l'audio : le son sautait des qu'on bougeait a la
+    // croix. On ne repeint donc que ce qui change VRAIMENT — deux cases quand
+    // le curseur se deplace, tout l'ecran seulement quand la vue defile.
     static int vuCanal = -1, vuLigne = -1, vuHaut = -1;
-    const bool aChange =
-        (curCanal != vuCanal || curLigne != vuLigne || haut != vuHaut);
-    vuCanal = curCanal; vuLigne = curLigne; vuHaut = haut;
 
-    for (int l = 0; aChange && l < kLignesVues; l++) {
-      int ligne = haut + l;
+    // Dessine une case : le fond, le curseur eventuel, puis la valeur.
+    auto dessineCase = [&](int c, int ligne, bool ici) {
+      int l = ligne - haut;
+      if (l < 0 || l >= kLignesVues) return;
+      uint8_t v = md_replayer_get_song(c, ligne);
+      char cel[4];
+      if (v == MD_EMPTY) { cel[0]='-'; cel[1]=' '; cel[2]='-'; }
+      else { cel[0]=kHex[(v>>4)&15]; cel[1]=' '; cel[2]=kHex[v&15]; }
+      cel[3] = 0;
+      int col = 4 + c * 6;
+      efface(col, 4 + l, 3);
+      if (ici) {
+        int x0 = col * MD_CELL_W, y0 = (4 + l) * MD_CELL_H;
+        for (int y = y0; y < y0 + MD_FONT_HT; y++)
+          for (int x = x0 - 1; x < x0 + 3 * MD_CELL_W; x++) pixel(x, y, kEntete);
+      }
+      texte(col, 4 + l, cel, ici ? kFond : kAttenue);
+    };
+    auto dessineNumero = [&](int ligne) {
+      int l = ligne - haut;
+      if (l < 0 || l >= kLignesVues) return;
       char num[3];
       num[0] = kHex[(ligne >> 4) & 15]; num[1] = kHex[ligne & 15]; num[2] = 0;
       efface(0, 4 + l, 2);
       texte(0, 4 + l, num, ligne == curLigne ? kEntete : kAttenue);
-      for (int c = 0; c < 10; c++) {
-        uint8_t v = md_replayer_get_song(c, ligne);
-        char cel[4];
-        if (v == MD_EMPTY) { cel[0]='-'; cel[1]=' '; cel[2]='-'; }
-        else { cel[0]=kHex[(v>>4)&15]; cel[1]=' '; cel[2]=kHex[v&15]; }
-        cel[3] = 0;
-        int col = 4 + c * 6;
-        bool ici = (c == curCanal && ligne == curLigne);
-        efface(col, 4 + l, 3);
-        if (ici) {
-          // Le curseur : un pave plein, comme dans LSDJ.
-          int x0 = col * MD_CELL_W, y0 = (4 + l) * MD_CELL_H;
-          for (int y = y0; y < y0 + MD_FONT_HT; y++)
-            for (int x = x0 - 1; x < x0 + 3 * MD_CELL_W; x++) pixel(x, y, kEntete);
-        }
-        texte(col, 4 + l, cel, ici ? kFond : kAttenue);
+    };
+
+    if (haut != vuHaut) {
+      // La vue a defile : il faut tout repeindre.
+      for (int l = 0; l < kLignesVues; l++) {
+        dessineNumero(haut + l);
+        for (int c = 0; c < 10; c++)
+          dessineCase(c, haut + l, c == curCanal && haut + l == curLigne);
       }
+    } else if (curCanal != vuCanal || curLigne != vuLigne) {
+      // Seul le curseur a bouge : deux cases, et deux numeros de ligne.
+      if (vuCanal >= 0) {
+        dessineCase(vuCanal, vuLigne, false);
+        dessineNumero(vuLigne);
+      }
+      dessineCase(curCanal, curLigne, true);
+      dessineNumero(curLigne);
     }
+    vuCanal = curCanal; vuLigne = curLigne; vuHaut = haut;
 
     swiWaitForVBlank();
   }
