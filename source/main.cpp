@@ -154,6 +154,36 @@ static void trame() {
   }
 }
 
+// ── Edition, calquee sur LSDJModel de l'iPad ────────────────────────────────
+// A pose une valeur ; un DOUBLE appui cree un element neuf ; A + croix modifie,
+// pas de 1 a gauche/droite, grand pas en haut/bas (16, ou 12 demi-tons sur une
+// note). C'est la convention de LSDJ, et celle du tracker iPad.
+
+// Premier chain / phrase / instrument non utilise, pour le double appui.
+static int chainLibre(void) {
+  bool pris[MD_MAX_CHAINS]; for (int i = 0; i < MD_MAX_CHAINS; i++) pris[i] = false;
+  for (int c = 0; c < 10; c++)
+    for (int r = 0; r < MD_SONG_ROWS; r++) {
+      uint8_t v = md_replayer_get_song(c, r);
+      if (v != MD_EMPTY && v < MD_MAX_CHAINS) pris[v] = true;
+    }
+  for (int i = 0; i < MD_MAX_CHAINS; i++) if (!pris[i]) return i;
+  return MD_MAX_CHAINS - 1;
+}
+static int phraseLibre(void) {
+  static bool pris[MD_MAX_PHRASES];
+  for (int i = 0; i < MD_MAX_PHRASES; i++) pris[i] = false;
+  for (int ch = 0; ch < MD_MAX_CHAINS; ch++)
+    for (int r = 0; r < MD_ROWS_PER_CHAIN; r++) {
+      uint8_t ph; int8_t t; md_replayer_get_chain(ch, r, &ph, &t);
+      if (ph != MD_EMPTY && ph < MD_MAX_PHRASES) pris[ph] = true;
+    }
+  for (int i = 0; i < MD_MAX_PHRASES; i++) if (!pris[i]) return i;
+  return MD_MAX_PHRASES - 1;
+}
+
+static inline int borne(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
 int main(void) {
   // ── Horloge : passer la DSi a 134 MHz ─────────────────────────────────
   // La DSi peut faire tourner son ARM9 deux fois plus vite qu'une DS, mais
@@ -229,6 +259,8 @@ int main(void) {
   int page = PAGE_SONG, pageVue = -1;
   // Chaque page a son propre curseur, comme sur l'iPad. Le chain montre est
   // celui pointe dans SONG ; la phrase montree est celle pointee dans CHAIN.
+  int dernierChain = 0, dernierePhrase = 0, derniereNote = 48;  // C-4
+  int derA = -1; unsigned derAt = 0;   // pour detecter le double appui
   int chLigne = 0, chCol = 0;      // CHAIN : 16 lignes, 2 colonnes (phrase, tsp)
   int phLigne = 0, phCol = 0;      // PHRASE : 16 lignes, 5 colonnes
   bool enLecture = false;
@@ -326,7 +358,57 @@ int main(void) {
         if ((frappe & KEY_LEFT)  && page > PAGE_SONG)   page--;
       }
     } else {
-      if (page == PAGE_SONG) {
+      const bool aTenu = (keysHeld() & KEY_A) != 0;
+
+      // ── A + croix : modifier la valeur sous le curseur ─────────────────
+      // Gauche/droite = pas de 1, haut/bas = grand pas. Comme sur l'iPad.
+      if (aTenu && (appui & (KEY_UP|KEY_DOWN|KEY_LEFT|KEY_RIGHT))) {
+        const int sens = (appui & (KEY_UP|KEY_RIGHT)) ? 1 : -1;
+        const bool grand = (appui & (KEY_UP|KEY_DOWN)) != 0;
+        if (page == PAGE_SONG) {
+          uint8_t v = md_replayer_get_song(curCanal, curLigne);
+          if (v != MD_EMPTY) {
+            int n = borne((int)v + sens * (grand ? 16 : 1), 0, MD_MAX_CHAINS - 1);
+            md_replayer_set_song(curCanal, curLigne, (uint8_t)n); dernierChain = n;
+          } else if (sens > 0) md_replayer_set_song(curCanal, curLigne, 0);
+        } else if (page == PAGE_CHAIN) {
+          uint8_t noChain = md_replayer_get_song(curCanal, curLigne);
+          if (noChain != MD_EMPTY) {
+            uint8_t ph; int8_t tsp; md_replayer_get_chain(noChain, chLigne, &ph, &tsp);
+            if (chCol == 0) {
+              int n = (ph == MD_EMPTY ? -1 : (int)ph) + sens * (grand ? 16 : 1);
+              if (n < 0) md_replayer_set_chain(noChain, chLigne, MD_EMPTY, tsp);
+              else { n = borne(n, 0, MD_MAX_PHRASES - 1);
+                     md_replayer_set_chain(noChain, chLigne, (uint8_t)n, tsp);
+                     dernierePhrase = n; }
+            } else {
+              int t = borne((int)tsp + sens * (grand ? 12 : 1), -128, 127);
+              md_replayer_set_chain(noChain, chLigne, ph, (int8_t)t);
+            }
+          }
+        } else if (page == PAGE_PHRASE) {
+          uint8_t noChain = md_replayer_get_song(curCanal, curLigne);
+          uint8_t ph = MD_EMPTY; int8_t t0 = 0;
+          if (noChain != MD_EMPTY) md_replayer_get_chain(noChain, chLigne, &ph, &t0);
+          if (ph != MD_EMPTY) {
+            uint8_t no,ins,vel,cmd,cv,mc,mv;
+            md_replayer_get_phrase(ph, phLigne, &no,&ins,&vel,&cmd,&cv,&mc,&mv);
+            switch (phCol) {
+              case 0: { int n = (no && no != MD_EMPTY ? no : derniereNote)
+                                + sens * (grand ? 12 : 1);
+                        no = (uint8_t)borne(n, 1, MD_MAX_NOTE); derniereNote = no;
+                        if (!ins) ins = 1; } break;
+              case 1: ins = (uint8_t)borne((int)ins + sens * (grand ? 16 : 1), 1, 255); break;
+              case 2: vel = (uint8_t)borne((int)(vel ? vel : 127) + sens * (grand ? 16 : 1), 0, 127); break;
+              case 3: { int c2 = (cmd == MD_EMPTY ? -1 : (int)cmd) + sens;
+                        cmd = (c2 < 0) ? MD_EMPTY : (uint8_t)c2; } break;
+              case 4: cv = (uint8_t)borne((int)cv + sens * (grand ? 16 : 1), 0, 255); break;
+              default: mv = (uint8_t)borne((int)mv + sens * (grand ? 16 : 1), 0, 255); break;
+            }
+            md_replayer_set_phrase(ph, phLigne, no,ins,vel,cmd,cv,mc,mv);
+          }
+        }
+      } else if (page == PAGE_SONG) {
         if (appui & KEY_LEFT)  curCanal = (curCanal + 9) % 10;
         if (appui & KEY_RIGHT) curCanal = (curCanal + 1) % 10;
         if (appui & KEY_UP)    curLigne = (curLigne + MD_SONG_ROWS - 1) % MD_SONG_ROWS;
@@ -339,8 +421,8 @@ int main(void) {
       } else if (page == PAGE_PHRASE) {
         if (appui & KEY_UP)    phLigne = (phLigne + MD_ROWS_PER_PHRASE - 1) % MD_ROWS_PER_PHRASE;
         if (appui & KEY_DOWN)  phLigne = (phLigne + 1) % MD_ROWS_PER_PHRASE;
-        if (appui & KEY_LEFT)  phCol = (phCol + 4) % 5;
-        if (appui & KEY_RIGHT) phCol = (phCol + 1) % 5;
+        if (appui & KEY_LEFT)  phCol = (phCol + 5) % 6;
+        if (appui & KEY_RIGHT) phCol = (phCol + 1) % 6;
       } else if (page == PAGE_PROJECT) {
         // A : charger le morceau de demonstration.
         if ((frappe & KEY_A) && !demoChargee) {
@@ -349,6 +431,50 @@ int main(void) {
           curLigne = 0; haut = 0; curCanal = 0;
         }
       }
+      // ── A seul : poser une valeur ─────────────────────────────────────
+      if ((frappe & KEY_A) && page != PAGE_PROJECT) {
+        const int cle = page * 100000 + curCanal * 10000 + curLigne * 20
+                        + chLigne + phLigne * 3 + phCol;
+        const unsigned t = timerTick(2);
+        const bool doubleA = (cle == derA) && ((unsigned short)(t - derAt) < 16000);
+        derA = cle; derAt = t;
+
+        if (page == PAGE_SONG) {
+          uint8_t v = md_replayer_get_song(curCanal, curLigne);
+          if (doubleA || v == MD_EMPTY) {
+            int id = doubleA ? chainLibre() : dernierChain;
+            md_replayer_set_song(curCanal, curLigne, (uint8_t)id); dernierChain = id;
+          } else dernierChain = v;
+        } else if (page == PAGE_CHAIN && chCol == 0) {
+          uint8_t noChain = md_replayer_get_song(curCanal, curLigne);
+          if (noChain != MD_EMPTY) {
+            uint8_t ph; int8_t tsp; md_replayer_get_chain(noChain, chLigne, &ph, &tsp);
+            if (doubleA || ph == MD_EMPTY) {
+              int id = doubleA ? phraseLibre() : dernierePhrase;
+              md_replayer_set_chain(noChain, chLigne, (uint8_t)id, tsp);
+              dernierePhrase = id;
+            } else dernierePhrase = ph;
+          }
+        } else if (page == PAGE_PHRASE) {
+          uint8_t noChain = md_replayer_get_song(curCanal, curLigne);
+          uint8_t ph = MD_EMPTY; int8_t t0 = 0;
+          if (noChain != MD_EMPTY) md_replayer_get_chain(noChain, chLigne, &ph, &t0);
+          if (ph != MD_EMPTY) {
+            uint8_t no,ins,vel,cmd,cv,mc,mv;
+            md_replayer_get_phrase(ph, phLigne, &no,&ins,&vel,&cmd,&cv,&mc,&mv);
+            switch (phCol) {
+              case 0: if (no && no != MD_EMPTY) derniereNote = no;
+                      else { no = (uint8_t)derniereNote; if (!ins) ins = 1; } break;
+              case 1: if (!ins) ins = 1; break;
+              case 2: if (!vel) vel = 127; break;
+              case 3: case 4: if (cmd == MD_EMPTY) cmd = 0; break;
+              default: if (mc == MD_EMPTY) mc = 0; break;
+            }
+            md_replayer_set_phrase(ph, phLigne, no,ins,vel,cmd,cv,mc,mv);
+          }
+        }
+      }
+
       // START lance et arrete la lecture, depuis n'importe quelle page.
       if (frappe & KEY_START) {
         if (enLecture) { md_replayer_stop(); enLecture = false; }
@@ -466,13 +592,17 @@ int main(void) {
           if (cmd != MD_EMPTY) { sc[0]=(char)cmd; sc[1]=kHex[(cv>>4)&15]; sc[2]=kHex[cv&15]; }
           if (mc != MD_EMPTY) { sm[0]=kHex[(mc>>4)&15]; sm[1]=kHex[mc&15];
                                 sm[2]=kHex[(mv>>4)&15]; sm[3]=kHex[mv&15]; }
+          // Six positions de curseur pour cinq groupes visuels : la commande
+          // se parcourt en deux temps (la lettre, puis la valeur), comme sur
+          // l'iPad, et la colonne MD de meme.
           const int cols[5] = {4, 10, 15, 20, 28};
           const int larg[5] = {3, 2, 2, 3, 4};
           const char *txt[5] = {nt, si, sv, sc, sm};
+          const int groupe[6] = {0, 1, 2, 3, 3, 4};
           for (int k = 0; k < 5; k++) {
             efface(cols[k], lig, larg[k]);
             texte(cols[k], lig, txt[k],
-                  (l==phLigne && phCol==k) ? kEntete : kAttenue);
+                  (l==phLigne && groupe[phCol]==k) ? kEntete : kAttenue);
           }
         }
       }
