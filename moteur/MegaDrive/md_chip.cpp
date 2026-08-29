@@ -357,7 +357,22 @@ inline void render_source_sample(int32_t &outL, int32_t &outR) {
   // maximum et en phase — la somme dépasse la pleine échelle et est écrêtée.
   // Une vraie Mega Drive fait pareil, son mélangeur analogique sature.
   constexpr int32_t kFMLevel = MD_Q(2.0);
-  constexpr int32_t kPSGLevel = MD_Q(2.71);
+  // ── Correction PERCEPTIVE, propre a la DS ─────────────────────────────
+  // Sur iPad c'est 2,71 : la parite mesuree entre les deux puces.
+  //
+  // Ici on retire 3 dB au PSG, et il faut etre honnete sur ce que c'est. Les
+  // mesures disent que l'equilibre est INTACT — a 0,5 dB pres dans chaque
+  // bande, et la coupure a 13 kHz n'enleve que 0,26 dB a la FM. Ce n'est donc
+  // pas une correction de niveau.
+  //
+  // Mais a demi-cadence, le repliement disperse l'energie de la FM en
+  // composantes inharmoniques que l'oreille ne fusionne pas avec la note : a
+  // energie egale, la FM parait plus faible, et le PSG domine. Aucune mesure
+  // d'energie ne voit ca ; l'oreille, si.
+  //
+  // ⚠️ REMETTRE 2.71 en meme temps que MD_YM_DIVISEUR reviendra a 144 : cette
+  // correction n'a de sens que tant que la FM est degradee.
+  constexpr int32_t kPSGLevel = MD_Q(1.92);   // 2,71 moins 3 dB
 
   // ── Niveau de sortie général ──────────────────────────────────────────
   // Il s'applique à TOUT de la même façon, donc il ne change aucun équilibre :
