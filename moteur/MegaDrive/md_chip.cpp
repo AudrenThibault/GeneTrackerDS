@@ -246,6 +246,21 @@ constexpr int32_t kDACUnitQ = MD_Q(25.5);
 /// bruit maintenant, en baissant la FM.
 constexpr int32_t kPSGNoiseBoost = MD_Q(1.0);
 
+// ── Travail par lots pour le YM2612 ─────────────────────────────────────────
+// ymfm etait appele UN echantillon a la fois, 53 267 fois par seconde. Entre
+// deux tics du tracker aucun registre n'est ecrit : on peut donc lui demander
+// un lot d'un coup, ce qui amortit le prologue et garde ses six voies et ses
+// vingt-quatre operateurs dans le cache d'un echantillon a l'autre.
+//
+// Le lot est vide a chaque entree dans md_chip_generate, donc a chaque tic,
+// pour qu'aucune ecriture de registre ne soit prise en compte trop tard. Et il
+// est desactive quand la voie PCM joue, puisqu'elle ecrit le registre 0x2A a
+// chaque echantillon.
+constexpr int kLotFM = 64;
+ymfm::ym2612::output_data g_lot[kLotFM];
+int g_lot_reste = 0, g_lot_pos = 0;
+inline void lot_vider() { g_lot_reste = 0; g_lot_pos = 0; }
+
 inline void render_source_sample(int32_t &outL, int32_t &outR) {
   pcm_tick();
   // Key-on en attente : on les libère AVANT de générer l'échantillon, une fois
@@ -269,10 +284,17 @@ inline void render_source_sample(int32_t &outL, int32_t &outR) {
 
   ymfm::ym2612::output_data fm;
   // `generate` n'est pas virtuel : on choisit explicitement l'étage de sortie.
-  if (g_ladder)
-    ym().ymfm::ym2612::generate(&fm, 1);   // discrète, avec le ladder effect
-  else
-    ym().generate(&fm, 1);                 // CMOS, propre
+  if (g_ladder || g_pcm_playing) {
+    if (g_ladder) ym().ymfm::ym2612::generate(&fm, 1);
+    else          ym().generate(&fm, 1);
+  } else {
+    if (g_lot_reste == 0) {
+      ym().generate(g_lot, kLotFM);
+      g_lot_reste = kLotFM; g_lot_pos = 0;
+    }
+    fm = g_lot[g_lot_pos++];
+    g_lot_reste--;
+  }
 
   // emu76489 gère lui-même sa conversion de fréquence (mode « quality »),
   // on lui demande donc simplement un échantillon à la cadence du YM2612.
@@ -520,6 +542,8 @@ void md_chip_psg_set_pan(int ch, uint8_t pan) {
 void md_chip_generate(int16_t *stereo_out, int num_frames) {
   if (!stereo_out || num_frames <= 0)
     return;
+
+  lot_vider();   // un tic vient peut-etre d'ecrire des registres
 
   if (!g_primed) {
     render_source_sample(g_prevL, g_prevR);

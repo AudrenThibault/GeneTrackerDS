@@ -428,6 +428,7 @@ bool fm_operator<RegisterType>::prepare()
 {
 	// cache the data
 	m_regs.cache_operator_data(m_choffs, m_opoffs, m_cache);
+	m_cache.am_enable = (uint8_t)(m_regs.op_lfo_am_enable(m_opoffs) != 0);
 
 	// clock the key state
 	clock_keystate(uint32_t(m_keyon_live != 0));
@@ -773,8 +774,8 @@ uint32_t fm_operator<RegisterType>::envelope_attenuation(uint32_t am_offset) con
 	if (RegisterType::EG_HAS_SSG && m_ssg_inverted)
 		result = (0x200 - result) & 0x3ff;
 
-	// add in LFO AM modulation
-	if (m_regs.op_lfo_am_enable(m_opoffs))
+	// add in LFO AM modulation (depuis le cache, plus de decodage ici)
+	if (m_cache.am_enable)
 		result += am_offset;
 
 	// add in total level and KSL from the cache

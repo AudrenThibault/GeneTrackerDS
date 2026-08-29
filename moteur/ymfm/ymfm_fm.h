@@ -75,6 +75,11 @@ struct opdata_cache
 	uint32_t eg_sustain;              // sustain level, shifted up to envelope values
 	uint8_t eg_rate[EG_STATES];       // envelope rate, including KSR
 	uint8_t eg_shift = 0;             // envelope shift amount
+	// Specialisation DS : la modulation d'amplitude par le LFO etait relue
+	// dans les registres a CHAQUE echantillon et pour CHACUN des vingt-quatre
+	// operateurs. Elle ne change qu'a l'ecriture d'un registre, donc elle a sa
+	// place ici, avec le reste du cache.
+	uint8_t am_enable = 0;            // modulation d'amplitude active ?
 };
 
 

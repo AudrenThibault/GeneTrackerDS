@@ -270,10 +270,17 @@ int main(void) {
     cumul     += (unsigned short)(tB - tPrec); // bouclage du compteur est gere
     tPrec = tB;
     tours++;
-    if (cumul >= kTicksParSeconde) {
-      fpsVu = (int)tours;
+    // Moyenne sur HUIT secondes, pas une.
+    //
+    // Le morceau n'occupe pas le processeur de la meme facon d'un passage a
+    // l'autre : selon le nombre de voies qui sonnent, la mesure sur une seconde
+    // varie de plus ou moins 3 %. Toute optimisation gagnant moins que ca etait
+    // donc indiscernable du bruit — j'ai failli en juger une comme une
+    // regression sur ce seul motif.
+    if (cumul >= kTicksParSeconde * 8) {
+      fpsVu = (int)(tours / 8);
       partAudio = (int)((unsigned long long)cumulAudio * 100 / cumul);
-      livresVu = g_livres; g_livres = 0;
+      livresVu = g_livres / 8; g_livres = 0;
       cumul = 0; cumulAudio = 0; tours = 0;
     }
 
