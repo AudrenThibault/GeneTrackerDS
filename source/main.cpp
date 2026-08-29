@@ -237,7 +237,7 @@ int main(void) {
   const unsigned kTicksParSeconde = 32727;   // 33,51 MHz / 1024
   unsigned tPrec = timerTick(2), cumul = 0, cumulAudio = 0, tours = 0;
   int fpsVu = 0, partAudio = 0;
-  unsigned livresVu = 0;
+  unsigned livresVu = 0, ecretesVu = 0;
   unsigned horloge = 0, tPrecSon = timerTick(2);
 
   int curCanal = 0, curLigne = 0, haut = 0;
@@ -265,7 +265,15 @@ int main(void) {
     tPrecSon = tSon;
     unsigned cible = (unsigned)((unsigned long long)horloge * SON_HZ / kTicksParSeconde)
                      + SON_IMAGE * 4;          // un peu d'avance sur la lecture
-    if (cible > g_ecrit) {
+    // On ne remplit QUE par paquets d'au moins un quart d'image.
+    //
+    // Sans ce seuil, la boucle appelait le moteur tres souvent avec quelques
+    // echantillons a la fois, et le cout fixe de chaque appel — mise en place
+    // du rendu, du reechantillonneur, du lot FM — finissait par dominer le
+    // travail utile. Symptome : baisser la cadence de la puce ne liberait
+    // AUCUN temps, la part passee a produire restait collee a 99 %.
+    unsigned seuil = SON_IMAGE / 4;
+    if (cible > g_ecrit && cible - g_ecrit >= seuil) {
       unsigned manque = cible - g_ecrit;
       // Rattraper au-dela d'un anneau n'a aucun sens : on reecrirait du son
       // deja joue. Dans ce cas on se resynchronise, quitte a sauter.
@@ -276,10 +284,13 @@ int main(void) {
       son_remplir((int)manque);
     }
     cumulAudio += (unsigned short)(timerTick(2) - tAv);
+    // cumulAudio est deja accumule plus haut, autour du seul remplissage.
+    // Il l'etait AUSSI ici, depuis tA qui est en tete de boucle — donc sur le
+    // tour entier. TPS restait colle a 99 % quoi qu'on fasse et ne mesurait
+    // rien. Ici on ne compte plus que la duree totale du tour.
     unsigned tB = timerTick(2);
-    cumulAudio += (unsigned short)(tB - tA);   // soustraction 16 bits : le
-    cumul     += (unsigned short)(tB - tPrec); // bouclage du compteur est gere
-    tPrec = tB;
+    cumul += (unsigned short)(tB - tPrec);   // soustraction 16 bits : le
+    tPrec = tB;                              // bouclage du compteur est gere
     tours++;
     // Moyenne sur HUIT secondes, pas une.
     //
@@ -292,6 +303,7 @@ int main(void) {
       fpsVu = (int)(tours / 8);
       partAudio = (int)((unsigned long long)cumulAudio * 100 / cumul);
       livresVu = g_livres / 8; g_livres = 0;
+      ecretesVu = md_chip_ecretes_et_remet_a_zero() / 8;
       cumul = 0; cumulAudio = 0; tours = 0;
     }
 
@@ -311,13 +323,16 @@ int main(void) {
     // Le chiffre qui tranche : livres/attendus. 32768 = on tient.
     unsigned liv = livresVu > 99999 ? 99999 : livresVu;
     int a = partAudio > 99 ? 99 : partAudio;
-    char m[24] = {'L','I','V',' ',
+    char m[32] = {'L','I','V',' ',
                   (char)('0'+(liv/10000)%10), (char)('0'+(liv/1000)%10),
                   (char)('0'+(liv/100)%10),   (char)('0'+(liv/10)%10),
                   (char)('0'+liv%10),
-                  '/','1','9','9','7','5',' ',
-                  'T','P','S',(char)('0'+a/10),(char)('0'+a%10),'%', 0};
-    efface(12, 0, 23);
+                  '/','1','5','9','8','0',' ',
+                  'T','P','S',(char)('0'+a/10),(char)('0'+a%10),'%',
+                  ' ','E','C','R',
+                  (char)('0'+(ecretesVu/1000)%10),(char)('0'+(ecretesVu/100)%10),
+                  (char)('0'+(ecretesVu/10)%10),(char)('0'+ecretesVu%10), 0};
+    efface(12, 0, 31);
     texte(12, 0, m, livresVu < (unsigned)(SON_HZ - 800) ? rvb(31, 10, 8) : kEntete);
 
     // On ne repeint QUE si quelque chose a bouge.

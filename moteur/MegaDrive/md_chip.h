@@ -30,22 +30,25 @@ extern "C" {
 // DSi, emuler ca demande le double du temps disponible : mesure, on produit
 // ~17 000 echantillons par seconde pour 32 768 necessaires.
 //
-// On fait donc tourner la puce a horloge/384, soit 19 975 Hz. A horloge/288
-// (moitie de la cadence native) on atteignait 90 % du temps reel : mieux, mais
-// ca sautait encore. Un cran de plus donne la marge. Deux compensations sont indispensables, sans quoi
+// On fait donc tourner la puce a horloge/480, soit 15 980 Hz.
+//
+// Il a fallu trois crans. A /288 on etait a 90 % du temps reel, a /384 a 101 %
+// — soit AUCUNE marge : la moyenne passait, mais les passages denses
+// decrochaient, et ca s'entendait. Verifie au passage que ce n'etait pas de la
+// saturation : le compteur d'ecretage affiche zero. Deux compensations sont indispensables, sans quoi
 // tout serait faux :
 //   - la HAUTEUR : le moteur calcule ses F-Num a partir de cette cadence, donc
 //     il faut lui donner la meme constante (voir md_replayer.c) ;
 //   - les ENVELOPPES : elles avancent par image de puce, donc elles seraient
 //     trop lentes dans le rapport de la reduction. Le YM2612 double sa vitesse
 //     tous les +4 sur le registre de vitesse : pour un rapport de 384/144 =
-//     2,67, il faut +4 x log2(2,67) = +5,7, arrondi a +6 (voir
-//     md_chip_ym_write). L'arrondi rend les enveloppes 4 % trop rapides.
+//     3,33, il faut +4 x log2(3,33) = +6,95, arrondi a +7 (voir
+//     md_chip_ym_write). L'arrondi ne laisse que 0,9 % d'erreur.
 //
 // Le prix, assume : le plafond de frequences tombe de 26 a 13 kHz, et ce qui
 // vit au-dessus se REPLIE dans l'audible. Ca s'entend sur une FM tres modulee.
 // Remettre 144 ici quand le coeur FM sera assez rapide.
-#define MD_YM_DIVISEUR 384
+#define MD_YM_DIVISEUR 480
 
 // Horloge du PSG sur Mega Drive NTSC (master / 15).
 #define MD_PSG_CLOCK 3579545
@@ -127,6 +130,8 @@ bool md_chip_pcm_active(void);
 // Branche ou débranche FM6 de la synthèse (registre 2B bit 7).
 void md_chip_pcm_enable(bool on);
 
+// Nombre d'echantillons ecretes depuis le dernier appel (diagnostic).
+uint32_t md_chip_ecretes_et_remet_a_zero(void);
 void md_chip_set_ladder(bool enabled);
 bool md_chip_get_ladder(void);
 

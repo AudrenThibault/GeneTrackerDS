@@ -134,11 +134,14 @@ int g_key_pending[6] = {0, 0, 0, 0, 0, 0};
 // Code de voie attendu par le registre 0x28 : 0,1,2 puis 4,5,6.
 inline uint8_t fm_key_code(int ch) { return (uint8_t)((ch < 3) ? ch : (ch + 1)); }
 
+// Compteur d'ecretage, pour distinguer deux causes de « son degueulasse » :
+// un tampon qui se vide (manque de puissance) ou un melange qui sature (trop de
+// voix additionnees). Les deux s'entendent pareil, il faut les separer.
+uint32_t g_ecretes = 0;
+
 inline int16_t clamp16(int32_t v) {
-  if (v > 32767)
-    return 32767;
-  if (v < -32768)
-    return -32768;
+  if (v > 32767)  { g_ecretes++; return 32767; }
+  if (v < -32768) { g_ecretes++; return -32768; }
   return (int16_t)v;
 }
 
@@ -471,8 +474,9 @@ void md_chip_set_write_hook(md_write_hook_t hook, void *ctx) {
 // 4 x log2(rapport), soit +6 pour 384. RR (80-8F) n'a que 4 bits et sa vitesse
 // effective vaut 2*RR+1 : la moitie suffit sur ce champ-la.
 // +4 par doublement de la reduction : 288 -> +4, 384 -> +6, 576 -> +8.
+// 4 x log2(diviseur/144), arrondi.
 #define MD_ENV_COMP ((MD_YM_DIVISEUR == 288) ? 4 : (MD_YM_DIVISEUR == 384) ? 6 : \
-                     (MD_YM_DIVISEUR == 576) ? 8 : 0)
+                     (MD_YM_DIVISEUR == 480) ? 7 : (MD_YM_DIVISEUR == 576) ? 8 : 0)
 
 static uint8_t md_compense_enveloppe(uint8_t reg, uint8_t val) {
   if (MD_YM_DIVISEUR == 144) return val;           // rien a compenser
@@ -641,6 +645,10 @@ void md_chip_pcm_stop(void) {
 }
 
 bool md_chip_pcm_active(void) { return g_pcm_playing; }
+
+uint32_t md_chip_ecretes_et_remet_a_zero(void) {
+  uint32_t n = g_ecretes; g_ecretes = 0; return n;
+}
 
 void md_chip_set_ladder(bool enabled) { g_ladder = enabled; }
 bool md_chip_get_ladder(void) { return g_ladder; }
