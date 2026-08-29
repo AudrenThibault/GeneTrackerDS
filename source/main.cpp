@@ -898,6 +898,15 @@ int main(void) {
       d[15]=' '; d[16]='P'; d[17]=(char)('0'+page); d[18]=0;
       efface(30, 1, 20);
       texte(30, 1, d, rvb(31, 28, 10));
+      // Ou le curseur se croit-il ? Si ces coordonnees ne correspondent pas a
+      // la case surlignee a l'ecran, c'est l'affichage qui ment, pas la lecture.
+      char e[16];
+      e[0]='C'; e[1]=kHex[curCanal & 15];
+      e[2]=' '; e[3]='L'; e[4]=kHex[(curLigne>>4)&15]; e[5]=kHex[curLigne&15];
+      e[6]=' '; e[7]='H'; e[8]=kHex[(haut>>4)&15]; e[9]=kHex[haut&15];
+      e[10]=0;
+      efface(30, 2, 11);
+      texte(30, 2, e, rvb(31, 28, 10));
     }
 
     swiWaitForVBlank();
