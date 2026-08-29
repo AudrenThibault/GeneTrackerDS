@@ -7,8 +7,11 @@
 #  supportent pas — make coupe le chemin au premier espace. Un script cite
 #  correctement ses chemins.
 #
-#  Le MOTEUR n'est pas recopie ici : il est pris chez le voisin iPad. Un seul
-#  exemplaire du code, donc aucune divergence possible entre les deux trackers.
+#  Ce projet est AUTONOME. Le moteur vit dans moteur/, ici meme. Il vient a
+#  l'origine du tracker iPad, mais c'est une COPIE : les deux projets n'ont plus
+#  aucun lien. Une modification ici n'atteint pas l'iPad, et l'inverse est vrai.
+#  Le seul contrat entre eux est le FORMAT DES FICHIERS : un projet fait sur
+#  l'iPad doit s'ouvrir ici, et reciproquement.
 # ============================================================================
 set -e
 export DEVKITPRO=${DEVKITPRO:-/opt/devkitpro}
@@ -17,7 +20,7 @@ export CALICO=$DEVKITPRO/calico
 PATH=$DEVKITARM/bin:$PATH
 
 ICI="$(cd "$(dirname "$0")" && pwd)"
-MOTEUR="$ICI/../MDTracker/Engine"
+MOTEUR="$ICI/moteur"
 OBJ="$ICI/build"
 CIBLE="$ICI/MDTrackerDS"
 
