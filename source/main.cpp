@@ -69,16 +69,59 @@ static void efface(int col, int lig, int n) {
       pixel(x, y, (y & 1) ? rvb(0, 1, 1) : kFond);
 }
 
-// ── Le son ──────────────────────────────────────────────────────────────────
-// Le moteur remplit le tampon depuis la BOUCLE PRINCIPALE, jamais depuis une
-// interruption : maxmod est ouvert en mode « manuel » et c'est nous qui
-// appelons mmStreamUpdate. C'est ce que suppose md_lock.h, qui n'installe
-// aucun verrou sur DS — si un jour ça changeait, il faudrait le corriger la-bas.
-static mm_word flux_demande(mm_word longueur, mm_addr dest, mm_stream_formats f) {
-  (void)f;
-  md_replayer_update((uint8_t *)dest, (int)longueur * 4);   // stereo 16 bits
-  return longueur;
+// ── Le son, en direct ───────────────────────────────────────────────────────
+// maxmod a ete essaye et abandonne : en mode manuel il ne reclamait qu'un
+// SEIZIEME des echantillons necessaires, quelle que soit la cadence et quel que
+// soit le nombre d'appels ; en mode automatique il n'appelait jamais rien. La
+// puce comblait le manque en rejouant son tampon — d'ou un son ralenti et un
+// echo. On pilote donc les voies materielles nous-memes : c'est plus de code,
+// mais chaque etape est verifiable.
+//
+// Deux voies mono, l'une a gauche l'autre a droite, qui bouclent chacune sur un
+// anneau. On y ecrit en avance sur la lecture ; l'horloge, c'est le retour
+// vertical, dont la cadence est exactement celle de la console.
+//
+// Le moteur remplit depuis la BOUCLE PRINCIPALE, jamais depuis une
+// interruption : c'est ce que suppose md_lock.h, qui n'installe aucun verrou
+// sur DS. Si ca changeait, il faudrait le corriger la-bas.
+#define SON_HZ      32768
+#define SON_IMAGE   (SON_HZ / 60)          // echantillons par image
+#define SON_IMAGES  8                       // profondeur de l'anneau
+#define SON_ANNEAU  (SON_IMAGE * SON_IMAGES)
+
+static s16 g_gauche[SON_ANNEAU] __attribute__((aligned(32)));
+static s16 g_droite[SON_ANNEAU] __attribute__((aligned(32)));
+static s16 g_melange[SON_IMAGE * 2 * 2];    // rendu brut, stereo entrelace
+static unsigned g_ecrit = 0;                // echantillons produits en tout
+static unsigned g_livres = 0;               // pour la mesure, remis a zero
+                                            // chaque seconde
+
+// Produit `n` echantillons et les range dans l'anneau, en desentrelacant.
+static void son_remplir(int n) {
+  while (n > 0) {
+    int bloc = n > SON_IMAGE * 2 ? SON_IMAGE * 2 : n;
+    md_replayer_update((uint8_t *)g_melange, bloc * 4);
+    for (int i = 0; i < bloc; i++) {
+      unsigned pos = (g_ecrit + i) % SON_ANNEAU;
+      g_gauche[pos] = g_melange[i * 2 + 0];
+      g_droite[pos] = g_melange[i * 2 + 1];
+    }
+    // La puce lit la memoire principale sans passer par le cache du processeur :
+    // sans ce vidage, elle rejouerait ce qui s'y trouvait avant.
+    unsigned deb = g_ecrit % SON_ANNEAU;
+    if (deb + bloc <= SON_ANNEAU) {
+      DC_FlushRange(&g_gauche[deb], bloc * 2);
+      DC_FlushRange(&g_droite[deb], bloc * 2);
+    } else {
+      DC_FlushRange(g_gauche, SON_ANNEAU * 2);
+      DC_FlushRange(g_droite, SON_ANNEAU * 2);
+    }
+    g_ecrit += bloc; g_livres += bloc; n -= bloc;
+  }
 }
+// Combien d'echantillons le moteur a REELLEMENT livres. Il en faut 32 768 par
+// seconde ; tout ce qui manque, la puce le remplit en rejouant ce qu'elle a
+// deja — d'ou l'echo et l'impression de ralenti.
 
 // ── Trame du CRT ────────────────────────────────────────────────────────────
 // Une ligne sur deux legerement assombrie : c'est ce qui donne l'oeil du tube.
@@ -111,7 +154,7 @@ int main(void) {
   trame();
 
   // ── Le moteur, celui de l'iPad, compile pour ARM ──────────────────────
-  md_replayer_init(32768);          // cadence de sortie de la DS
+  md_replayer_init(SON_HZ);
   // SANS module, le moteur sort du silence sans rien calculer — ce qui
   // expliquait a la fois l'absence de son ET la charge processeur a zero.
   md_replayer_new_empty();
@@ -123,24 +166,10 @@ int main(void) {
   bool charge = md_replayer_import_dmf(morceau_dmf, morceau_dmf_len, &rapport);
 
   // ── Le son ────────────────────────────────────────────────────────────
-  mm_ds_system sys;
-  sys.mod_count = 0; sys.samp_count = 0; sys.mem_bank = 0;
-  mmInit(&sys);
-
-  mm_stream flux;
-  flux.sampling_rate = 32768;
-  // 4096 echantillons, soit 125 ms de reserve.
-  //
-  // Mesure a l'appui : le rendu occupe 87 % de l'ARM9 et arrive par paquets de
-  // ~72 ms. Avec les 31 ms que donnaient 1024 echantillons, le tampon se vidait
-  // entre deux paquets — c'est ce qui hachait le son. Il faut plus de reserve
-  // que le plus gros paquet, sinon aucune cadence de remplissage ne suffit.
-  flux.buffer_length = 4096;
-  flux.callback      = flux_demande;
-  flux.format        = MM_STREAM_16BIT_STEREO;
-  flux.timer         = MM_TIMER0;
-  flux.manual        = true;        // c'est NOUS qui remplissons, depuis la boucle
-  mmStreamOpen(&flux);
+  soundEnable();
+  son_remplir(SON_ANNEAU);            // l'anneau plein avant de lancer
+  soundPlaySample(g_gauche, SoundFormat_16Bit, SON_ANNEAU * 2, SON_HZ, 127, 0,   true, 0);
+  soundPlaySample(g_droite, SoundFormat_16Bit, SON_ANNEAU * 2, SON_HZ, 127, 127, true, 0);
 
   if (charge) {
     md_replayer_set_play_scope(MD_SCOPE_SONG, 0, 0);
@@ -176,6 +205,8 @@ int main(void) {
   const unsigned kTicksParSeconde = 32727;   // 33,51 MHz / 1024
   unsigned tPrec = timerTick(2), cumul = 0, cumulAudio = 0, tours = 0;
   int fpsVu = 0, partAudio = 0;
+  unsigned livresVu = 0;
+  unsigned horloge = 0, tPrecSon = timerTick(2);
 
   int curCanal = 0, curLigne = 0, haut = 0;
   const int kLignesVues = 26;
@@ -185,10 +216,26 @@ int main(void) {
   // l'extinction ; on tourne dedans jusqu'a ce qu'elle dise stop.
   while (pmMainLoop()) {
     unsigned tA = timerTick(2);
-    // UNE seule fois par image. J'avais essaye deux passes pour donner de la
-    // marge au tampon : ca a bloque la boucle avant meme le premier dessin.
-    // A ce rythme la, le moteur n'a deja pas le temps d'en faire une.
-    mmStreamUpdate();
+    // Attendre la ligne 0 puis remplir, comme le fait l'exemple officiel :
+    // c'est ce rendez-vous regulier qui donne a maxmod sa notion du temps.
+    // On produit selon le TEMPS ECOULE, pas selon le nombre de tours.
+    //
+    // Produire une image de son par tour ne marche que si la boucle tient les
+    // 60 tours. Elle n'en fait que 15 — le rendu est lourd — et il manquait
+    // donc les trois quarts des echantillons. Ici on vise toujours quelques
+    // images d'avance sur l'horloge, et le retard se rattrape tout seul.
+    // Le timer bat a 32 727 Hz et le son a 32 768 : 0,13 % d'ecart, qu'on
+    // corrige pour que la hauteur ne derive pas.
+    unsigned tSon = timerTick(2);
+    horloge += (unsigned short)(tSon - tPrecSon);
+    tPrecSon = tSon;
+    unsigned cible = (unsigned)((unsigned long long)horloge * SON_HZ / kTicksParSeconde)
+                     + SON_IMAGE * 3;
+    if (cible > g_ecrit) {
+      unsigned manque = cible - g_ecrit;
+      if (manque > SON_ANNEAU) manque = SON_ANNEAU;   // trop de retard : on saute
+      son_remplir((int)manque);
+    }
     unsigned tB = timerTick(2);
     cumulAudio += (unsigned short)(tB - tA);   // soustraction 16 bits : le
     cumul     += (unsigned short)(tB - tPrec); // bouclage du compteur est gere
@@ -197,6 +244,7 @@ int main(void) {
     if (cumul >= kTicksParSeconde) {
       fpsVu = (int)tours;
       partAudio = (int)((unsigned long long)cumulAudio * 100 / cumul);
+      livresVu = g_livres; g_livres = 0;
       cumul = 0; cumulAudio = 0; tours = 0;
     }
 
@@ -213,13 +261,15 @@ int main(void) {
     if (haut > MD_SONG_ROWS - kLignesVues) haut = MD_SONG_ROWS - kLignesVues;
 
     // ── Redessin ────────────────────────────────────────────────────────
-    int f = fpsVu > 99 ? 99 : fpsVu, a = partAudio > 99 ? 99 : partAudio;
-    char m[16] = {'I','P','S',' ',
-                  (char)('0'+f/10), (char)('0'+f%10),
-                  ' ','S','O','N',' ',
-                  (char)('0'+a/10), (char)('0'+a%10), '%', 0};
-    efface(16, 0, 14);
-    texte(16, 0, m, fpsVu < 50 ? rvb(31, 10, 8) : kEntete);
+    // Le chiffre qui tranche : livres/attendus. 32768 = on tient.
+    unsigned liv = livresVu > 99999 ? 99999 : livresVu;
+    char m[20] = {'L','I','V',' ',
+                  (char)('0'+(liv/10000)%10), (char)('0'+(liv/1000)%10),
+                  (char)('0'+(liv/100)%10),   (char)('0'+(liv/10)%10),
+                  (char)('0'+liv%10),
+                  ' ','/',' ','3','2','7','6','8', 0};
+    efface(14, 0, 18);
+    texte(14, 0, m, livresVu < 32000 ? rvb(31, 10, 8) : kEntete);
 
     // On ne repeint QUE si quelque chose a bouge.
     //
