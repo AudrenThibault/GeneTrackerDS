@@ -25,7 +25,7 @@ ARCH="-march=armv5te -mtune=arm946e-s"
 # En tableau, pas en chaine : les chemins contiennent des espaces et une
 # simple variable serait redecoupee dessus.
 INC=(-iquote "$ICI/include" -iquote "$MOTEUR" -I"$DEVKITPRO/libnds/include" -I"$CALICO/include")
-COMMUN="-g -O2 -Wall -ffunction-sections -fdata-sections $ARCH -D__NDS__ -DARM9 -DMD_TARGET_NDS=1"
+COMMUN="-g -O3 -funroll-loops -fomit-frame-pointer -Wall -ffunction-sections -fdata-sections $ARCH -D__NDS__ -DARM9 -DMD_TARGET_NDS=1"
 CF="$COMMUN"
 CXXF="$COMMUN -fno-rtti -fno-exceptions -std=gnu++17"
 
