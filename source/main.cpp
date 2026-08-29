@@ -88,8 +88,12 @@ static void efface(int col, int lig, int n) {
 // sur DS. Si ca changeait, il faudrait le corriger la-bas.
 #define SON_HZ      32768
 #define SON_IMAGE   (SON_HZ / 60)          // echantillons par image
-#define SON_IMAGES  8                       // profondeur de l'anneau
-#define SON_ANNEAU  (SON_IMAGE * SON_IMAGES)
+// L'anneau est une PUISSANCE DE DEUX : l'ARM9 n'a pas d'instruction de
+// division, donc un modulo par une taille quelconque appelle une routine
+// logicielle — a chaque echantillon, et deux fois (gauche et droite). Avec une
+// puissance de deux, le compilateur le remplace par un simple masque.
+#define SON_ANNEAU  8192                    // ~15 images de reserve
+#define SON_MASQUE  (SON_ANNEAU - 1)
 
 static s16 g_gauche[SON_ANNEAU] __attribute__((aligned(32)));
 static s16 g_droite[SON_ANNEAU] __attribute__((aligned(32)));
@@ -104,13 +108,13 @@ static void son_remplir(int n) {
     int bloc = n > SON_IMAGE * 2 ? SON_IMAGE * 2 : n;
     md_replayer_update((uint8_t *)g_melange, bloc * 4);
     for (int i = 0; i < bloc; i++) {
-      unsigned pos = (g_ecrit + i) % SON_ANNEAU;
+      unsigned pos = (g_ecrit + i) & SON_MASQUE;
       g_gauche[pos] = g_melange[i * 2 + 0];
       g_droite[pos] = g_melange[i * 2 + 1];
     }
     // La puce lit la memoire principale sans passer par le cache du processeur :
     // sans ce vidage, elle rejouerait ce qui s'y trouvait avant.
-    unsigned deb = g_ecrit % SON_ANNEAU;
+    unsigned deb = g_ecrit & SON_MASQUE;
     if (deb + bloc <= SON_ANNEAU) {
       DC_FlushRange(&g_gauche[deb], bloc * 2);
       DC_FlushRange(&g_droite[deb], bloc * 2);
