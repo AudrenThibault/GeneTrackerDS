@@ -369,7 +369,17 @@ inline void render_source_sample(int32_t &outL, int32_t &outR) {
   // plus en pratique, des voix réelles n'étant jamais en phase. Le régler sur la
   // crête d'un morceau donné, comme je l'avais fait, ne veut rien dire pour le
   // morceau suivant.
-  constexpr int32_t kMasterLevel = MD_Q(1.00);
+  // ── ESSAI : niveau general divise par deux ────────────────────────────
+  // Symptome a expliquer : des « flatulences » quand plusieurs voies FM sonnent
+  // ensemble. C'est la signature d'un ECRETAGE — la somme depasse la pleine
+  // echelle et se fait couper net.
+  //
+  // Si ce demi-niveau les fait disparaitre, c'etait bien ca, et on reglera
+  // proprement. Si elles restent, la cause est ailleurs : probablement la
+  // RETROACTION des operateurs, dont le retard de deux tics de puce dure deux
+  // fois plus longtemps a demi-cadence, ce qui change le timbre des sons les
+  // plus agressifs.
+  constexpr int32_t kMasterLevel = MD_Q(0.50);
   // Le supplément de PCM, proportionnel au dernier octet envoyé au DAC. Il
   // vaut zéro dès que la voie se tait, puisque le silence y est 0x80. Il ignore
   // le panoramique de FM6 : la voie PCM est au centre dans la pratique.

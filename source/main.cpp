@@ -264,7 +264,16 @@ int main(void) {
     horloge += (unsigned short)(tSon - tPrecSon);
     tPrecSon = tSon;
     unsigned cible = (unsigned)((unsigned long long)horloge * SON_HZ / kTicksParSeconde)
-                     + SON_IMAGE * 4;          // un peu d'avance sur la lecture
+                     + SON_IMAGE * 12;         // ~200 ms d'avance
+    // Douze images d'avance, et non quatre.
+    //
+    // Quand on ecrit trop tard, la puce ne se tait pas : elle REJOUE l'anneau,
+    // ce qui s'entend comme un disque raye. Quatre images (67 ms) ne
+    // suffisaient pas a absorber un tour de boucle un peu long. Douze donnent
+    // 200 ms de reserve, pour 615 ms d'anneau — il reste donc de la place.
+    //
+    // Le prix : 200 ms de latence. Perceptible en edition, acceptable en
+    // lecture. A rediscuter quand le moteur aura de la marge.
     // On ne remplit QUE par paquets d'au moins un quart d'image.
     //
     // Sans ce seuil, la boucle appelait le moteur tres souvent avec quelques
