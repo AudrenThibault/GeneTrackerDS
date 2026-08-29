@@ -262,6 +262,10 @@ int main(void) {
   // celui pointe dans SONG ; la phrase montree est celle pointee dans CHAIN.
   int dernierChain = 0, dernierePhrase = 0, derniereNote = 48;  // C-4
   int derA = -1; unsigned derAt = 0;   // pour detecter le double appui
+  // Numeros RETENUS au moment ou l'on descend, comme chainId / phraseId sur
+  // l'iPad. On ne les recalcule pas depuis le curseur : sinon la page CHAIN
+  // afficherait toujours le chain de la case actuellement pointee dans SONG.
+  int chainId = 0, phraseId = 0, instrId = 1;
   int chLigne = 0, chCol = 0;      // CHAIN : 16 lignes, 2 colonnes (phrase, tsp)
   int phLigne = 0, phCol = 0;      // PHRASE : 16 lignes, 6 colonnes
   int inLigne = 0, inCol = 0;      // INSTR : parametres en lignes, 4 operateurs
@@ -343,6 +347,10 @@ int main(void) {
     }
 
     scanKeys();
+    // Toute modification leve ce drapeau. Sans lui, la page SONG — qui ne se
+    // redessine que sur deplacement du curseur — n'affichait pas ce qu'on
+    // venait de poser tant qu'on n'avait pas bouge.
+    bool modifie = false;
     const int appui = keysDownRepeat();
     const int frappe = keysDown();
     const bool selTenu = (keysHeld() & KEY_SELECT) != 0;
@@ -356,8 +364,24 @@ int main(void) {
                                page = PAGE_PROJECT; }
       if (frappe & KEY_DOWN) { if (page == PAGE_PROJECT) page = derniereRangee; }
       if (page != PAGE_PROJECT) {
-        if ((frappe & KEY_RIGHT) && page < PAGE_INSTR) page++;
-        if ((frappe & KEY_LEFT)  && page > PAGE_SONG)   page--;
+        // SELECT + droite = drillIn : on DESCEND DANS la case pointee, et on
+        // refuse si elle est vide. C'est ce que fait LSDJ ; passer betement a
+        // l'ecran suivant afficherait toujours le chain 00.
+        if (frappe & KEY_RIGHT) {
+          if (page == PAGE_SONG) {
+            uint8_t v = md_replayer_get_song(curCanal, curLigne);
+            if (v != MD_EMPTY) { chainId = v; chLigne = 0; chCol = 0; page = PAGE_CHAIN; }
+          } else if (page == PAGE_CHAIN) {
+            uint8_t ph; int8_t tsp; md_replayer_get_chain(chainId, chLigne, &ph, &tsp);
+            if (ph != MD_EMPTY) { phraseId = ph; phLigne = 0; phCol = 0; page = PAGE_PHRASE; }
+          } else if (page == PAGE_PHRASE) {
+            uint8_t no,i2,vel,cmd,cv,mc,mv;
+            md_replayer_get_phrase(phraseId, phLigne, &no,&i2,&vel,&cmd,&cv,&mc,&mv);
+            if (i2) { instrId = i2; inLigne = 0; inCol = 0; page = PAGE_INSTR; }
+          }
+        }
+        // SELECT + gauche = drillOut : on remonte d'un cran.
+        if ((frappe & KEY_LEFT) && page > PAGE_SONG) page--;
       }
     } else {
       const bool aTenu = (keysHeld() & KEY_A) != 0;
@@ -374,8 +398,8 @@ int main(void) {
             md_replayer_set_song(curCanal, curLigne, (uint8_t)n); dernierChain = n;
           } else if (sens > 0) md_replayer_set_song(curCanal, curLigne, 0);
         } else if (page == PAGE_CHAIN) {
-          uint8_t noChain = md_replayer_get_song(curCanal, curLigne);
-          if (noChain != MD_EMPTY) {
+          {
+            const uint8_t noChain = (uint8_t)chainId;
             uint8_t ph; int8_t tsp; md_replayer_get_chain(noChain, chLigne, &ph, &tsp);
             if (chCol == 0) {
               int n = (ph == MD_EMPTY ? -1 : (int)ph) + sens * (grand ? 16 : 1);
@@ -415,10 +439,8 @@ int main(void) {
             md_replayer_set_instr_op_val(ins, inCol, prop[k], v);
           }
         } else if (page == PAGE_PHRASE) {
-          uint8_t noChain = md_replayer_get_song(curCanal, curLigne);
-          uint8_t ph = MD_EMPTY; int8_t t0 = 0;
-          if (noChain != MD_EMPTY) md_replayer_get_chain(noChain, chLigne, &ph, &t0);
-          if (ph != MD_EMPTY) {
+          {
+            const uint8_t ph = (uint8_t)phraseId;
             uint8_t no,ins,vel,cmd,cv,mc,mv;
             md_replayer_get_phrase(ph, phLigne, &no,&ins,&vel,&cmd,&cv,&mc,&mv);
             switch (phCol) {
@@ -482,8 +504,8 @@ int main(void) {
             md_replayer_set_song(curCanal, curLigne, (uint8_t)id); dernierChain = id;
           } else dernierChain = v;
         } else if (page == PAGE_CHAIN && chCol == 0) {
-          uint8_t noChain = md_replayer_get_song(curCanal, curLigne);
-          if (noChain != MD_EMPTY) {
+          {
+            const uint8_t noChain = (uint8_t)chainId;
             uint8_t ph; int8_t tsp; md_replayer_get_chain(noChain, chLigne, &ph, &tsp);
             if (doubleA || ph == MD_EMPTY) {
               int id = doubleA ? phraseLibre() : dernierePhrase;
@@ -492,10 +514,8 @@ int main(void) {
             } else dernierePhrase = ph;
           }
         } else if (page == PAGE_PHRASE) {
-          uint8_t noChain = md_replayer_get_song(curCanal, curLigne);
-          uint8_t ph = MD_EMPTY; int8_t t0 = 0;
-          if (noChain != MD_EMPTY) md_replayer_get_chain(noChain, chLigne, &ph, &t0);
-          if (ph != MD_EMPTY) {
+          {
+            const uint8_t ph = (uint8_t)phraseId;
             uint8_t no,ins,vel,cmd,cv,mc,mv;
             md_replayer_get_phrase(ph, phLigne, &no,&ins,&vel,&cmd,&cv,&mc,&mv);
             switch (phCol) {
@@ -544,10 +564,8 @@ int main(void) {
             else                   md_replayer_set_chain(noChain, chLigne, ph, 0);
           }
         } else if (page == PAGE_PHRASE) {
-          uint8_t noChain = md_replayer_get_song(curCanal, curLigne);
-          uint8_t ph = MD_EMPTY; int8_t t0 = 0;
-          if (noChain != MD_EMPTY) md_replayer_get_chain(noChain, chLigne, &ph, &t0);
-          if (ph != MD_EMPTY) {
+          {
+            const uint8_t ph = (uint8_t)phraseId;
             uint8_t no,ins,vel,cmd,cv,mc,mv;
             md_replayer_get_phrase(ph, phLigne, &no,&ins,&vel,&cmd,&cv,&mc,&mv);
             bool vide;
@@ -596,6 +614,11 @@ int main(void) {
           }
         }
       }
+
+      // Une touche d'edition a-t-elle ete frappee ? Si oui, la page SONG doit
+      // se redessiner meme si le curseur n'a pas bouge.
+      if (frappe & (KEY_A | KEY_X)) modifie = true;
+      if (aTenu && (appui & (KEY_UP|KEY_DOWN|KEY_LEFT|KEY_RIGHT))) modifie = true;
 
       // START lance et arrete la lecture, depuis n'importe quelle page.
       if (frappe & KEY_START) {
@@ -714,24 +737,17 @@ int main(void) {
       // ── Quel chain, quelle phrase ? ──────────────────────────────────
       // Le chain montre est celui pointe dans SONG ; la phrase montree est
       // celle pointee dans CHAIN. C'est la chaine de navigation de LSDJ.
-      uint8_t noChain = md_replayer_get_song(curCanal, curLigne);
-      uint8_t noPhrase = MD_EMPTY; int8_t tsp0 = 0;
-      if (noChain != MD_EMPTY)
-        md_replayer_get_chain(noChain, chLigne, &noPhrase, &tsp0);
+      const uint8_t noChain = (uint8_t)chainId;
+      const uint8_t noPhrase = (uint8_t)phraseId;
 
       char t[8];
       efface(20, 0, 12);
-      if (page == PAGE_CHAIN) {
-        t[0]='C'; t[1]='H'; t[2]=' ';
-        if (noChain == MD_EMPTY) { t[3]='-'; t[4]='-'; }
-        else { t[3]=kHex[(noChain>>4)&15]; t[4]=kHex[noChain&15]; }
-        t[5]=0; texte(20, 0, t, kEntete);
-      } else {
-        t[0]='P'; t[1]='H'; t[2]=' ';
-        if (noPhrase == MD_EMPTY) { t[3]='-'; t[4]='-'; }
-        else { t[3]=kHex[(noPhrase>>4)&15]; t[4]=kHex[noPhrase&15]; }
-        t[5]=0; texte(20, 0, t, kEntete);
-      }
+      const uint8_t montre = (page == PAGE_CHAIN) ? noChain : noPhrase;
+      t[0] = (page == PAGE_CHAIN) ? 'C' : 'P';
+      t[1] = (page == PAGE_CHAIN) ? 'H' : 'H';
+      t[2] = ' ';
+      t[3] = kHex[(montre >> 4) & 15]; t[4] = kHex[montre & 15]; t[5] = 0;
+      texte(20, 0, t, kEntete);
 
       const int nl = (page == PAGE_CHAIN) ? MD_ROWS_PER_CHAIN : MD_ROWS_PER_PHRASE;
       for (int l = 0; l < nl; l++) {
@@ -822,6 +838,12 @@ int main(void) {
           dessineCase(c, haut + l, c == curCanal && haut + l == curLigne);
       }
       for (int c = 0; c < 10; c++) repereVu[c] = -1;
+    } else if (modifie) {
+      // On vient de modifier : toute la vue peut avoir bouge (l'aspiration de
+      // colonne decale les lignes du dessous), donc on repeint la colonne.
+      for (int l = 0; l < kLignesVues; l++)
+        dessineCase(curCanal, haut + l, curCanal == curCanal && haut + l == curLigne);
+      dessineNumero(curLigne);
     } else if (curCanal != vuCanal || curLigne != vuLigne) {
       if (vuCanal >= 0) { dessineCase(vuCanal, vuLigne, false); dessineNumero(vuLigne); }
       dessineCase(curCanal, curLigne, true);
