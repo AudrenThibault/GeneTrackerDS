@@ -129,7 +129,13 @@ int main(void) {
 
   mm_stream flux;
   flux.sampling_rate = 32768;
-  flux.buffer_length = 1024;
+  // 4096 echantillons, soit 125 ms de reserve.
+  //
+  // Mesure a l'appui : le rendu occupe 87 % de l'ARM9 et arrive par paquets de
+  // ~72 ms. Avec les 31 ms que donnaient 1024 echantillons, le tampon se vidait
+  // entre deux paquets — c'est ce qui hachait le son. Il faut plus de reserve
+  // que le plus gros paquet, sinon aucune cadence de remplissage ne suffit.
+  flux.buffer_length = 4096;
   flux.callback      = flux_demande;
   flux.format        = MM_STREAM_16BIT_STEREO;
   flux.timer         = MM_TIMER0;
@@ -160,9 +166,16 @@ int main(void) {
   texte(52, 0, "SONG", kEntete);
   for (int c = 0; c < 10; c++) texte(4 + c * 6, 2, noms[c], kEntete);
 
-  // Le timer 0 est a maxmod ; on prend le 2 pour la mesure.
-  timerStart(2, ClockDivider_64, 0, NULL);
-  const int kTicksParImage = 8724;   // 33,51 MHz / 64 / 59,83 Hz
+  // ── Mesure ────────────────────────────────────────────────────────────
+  // La precedente mesurait un pourcentage et affichait toujours 000 : elle ne
+  // valait rien. Celle-ci compte deux choses verifiables : combien de tours de
+  // boucle passent REELLEMENT en une seconde (60 = on tient la cadence), et
+  // quelle part de ce temps part dans le rendu audio.
+  // Le timer 0 appartient a maxmod ; on prend le 2, libre, a 32,7 kHz.
+  timerStart(2, ClockDivider_1024, 0, NULL);
+  const unsigned kTicksParSeconde = 32727;   // 33,51 MHz / 1024
+  unsigned tPrec = timerTick(2), cumul = 0, cumulAudio = 0, tours = 0;
+  int fpsVu = 0, partAudio = 0;
 
   int curCanal = 0, curLigne = 0, haut = 0;
   const int kLignesVues = 26;
@@ -171,22 +184,21 @@ int main(void) {
   // et la cartouche plante. pmMainLoop() gere l'ouverture du clapet et
   // l'extinction ; on tourne dedans jusqu'a ce qu'elle dise stop.
   while (pmMainLoop()) {
-    timerStop(2); timerStart(2, ClockDivider_64, 0, NULL);
+    unsigned tA = timerTick(2);
     // UNE seule fois par image. J'avais essaye deux passes pour donner de la
     // marge au tampon : ca a bloque la boucle avant meme le premier dessin.
     // A ce rythme la, le moteur n'a deja pas le temps d'en faire une.
     mmStreamUpdate();
-    int ticks = timerElapsed(2);
-
-    // Charge processeur : c'est LA question de ce portage. Si emuler le YM2612
-    // ne tient pas dans une image, tout le reste est sans objet. On affiche la
-    // CRETE sur une seconde : le tampon fait 31 ms, donc maxmod ne redemande du
-    // son qu'une image sur deux et mesurer une image au hasard ne dit rien.
-    static int crete = 0, compte = 0, affiche = 0;
-    if (ticks > crete) crete = ticks;
-    if (++compte >= 60) { affiche = crete; crete = 0; compte = 0; }
-    int pourcent = affiche * 100 / kTicksParImage;
-    if (pourcent > 999) pourcent = 999;
+    unsigned tB = timerTick(2);
+    cumulAudio += (unsigned short)(tB - tA);   // soustraction 16 bits : le
+    cumul     += (unsigned short)(tB - tPrec); // bouclage du compteur est gere
+    tPrec = tB;
+    tours++;
+    if (cumul >= kTicksParSeconde) {
+      fpsVu = (int)tours;
+      partAudio = (int)((unsigned long long)cumulAudio * 100 / cumul);
+      cumul = 0; cumulAudio = 0; tours = 0;
+    }
 
     scanKeys();
     int appui = keysDownRepeat();
@@ -201,17 +213,27 @@ int main(void) {
     if (haut > MD_SONG_ROWS - kLignesVues) haut = MD_SONG_ROWS - kLignesVues;
 
     // ── Redessin ────────────────────────────────────────────────────────
-    char m[16];
-    m[0]='C'; m[1]='P'; m[2]='U'; m[3]=' ';
-    m[4]='0'+(pourcent/100)%10; m[5]='0'+(pourcent/10)%10; m[6]='0'+pourcent%10;
-    m[7]=' '; m[8]='/'; m[9]=' '; m[10]='1'; m[11]='0'; m[12]='0'; m[13]=0;
-    efface(16, 0, 13);
-    texte(16, 0, m, pourcent > 90 ? rvb(31, 10, 8) : kEntete);
+    int f = fpsVu > 99 ? 99 : fpsVu, a = partAudio > 99 ? 99 : partAudio;
+    char m[16] = {'I','P','S',' ',
+                  (char)('0'+f/10), (char)('0'+f%10),
+                  ' ','S','O','N',' ',
+                  (char)('0'+a/10), (char)('0'+a%10), '%', 0};
+    efface(16, 0, 14);
+    texte(16, 0, m, fpsVu < 50 ? rvb(31, 10, 8) : kEntete);
 
-    // Redessin complet a chaque image. J'avais essaye de ne repeindre que sur
-    // changement, pour rendre du temps au son : la grille ne s'affichait plus
-    // du tout. Tant que la cause n'est pas comprise, on garde ce qui marche.
-    for (int l = 0; l < kLignesVues; l++) {
+    // On ne repeint QUE si quelque chose a bouge.
+    //
+    // Mesure a l'appui : en repeignant les 260 cases a chaque tour, la boucle
+    // tombait a 11 tours par seconde au lieu de 60, dont 11 % seulement dans le
+    // rendu audio. Ce n'est donc PAS l'emulation du YM2612 qui coute cher —
+    // c'est ce dessin, fait pixel par pixel. Et un tampon audio nourri 11 fois
+    // par seconde se vide : c'est ce qui rendait le son inecoutable.
+    static int vuCanal = -1, vuLigne = -1, vuHaut = -1;
+    const bool aChange =
+        (curCanal != vuCanal || curLigne != vuLigne || haut != vuHaut);
+    vuCanal = curCanal; vuLigne = curLigne; vuHaut = haut;
+
+    for (int l = 0; aChange && l < kLignesVues; l++) {
       int ligne = haut + l;
       char num[3];
       num[0] = kHex[(ligne >> 4) & 15]; num[1] = kHex[ligne & 15]; num[2] = 0;
