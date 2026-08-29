@@ -209,7 +209,7 @@ int main(void) {
   // ── Page SONG ─────────────────────────────────────────────────────────
   // Dix canaux : six FM (dont FM6 qui devient le PCM) et quatre PSG.
   static const char *noms[10] = {"FM1","FM2","FM3","FM4","FM5","PCM",
-                                 "SQ1","SQ2","SQ3","NOI"};
+                                 "PS1","PS2","PS3","NOI"};
   texte(0, 0, charge ? "MD TRACKER DS" : "DMF REFUSE", kEntete);
   // On affiche la vitesse reelle : c'est elle qui decide de tout le reste.
   texte(0, 1, modeDSi ? "DSI 134MHZ" : "DS 67MHZ",
