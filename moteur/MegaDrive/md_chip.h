@@ -30,12 +30,22 @@ extern "C" {
 // DSi, emuler ca demande le double du temps disponible : mesure, on produit
 // ~17 000 echantillons par seconde pour 32 768 necessaires.
 //
-// On fait donc tourner la puce a horloge/480, soit 15 980 Hz.
+// On fait donc tourner la puce a horloge/288, soit 26 633 Hz.
 //
-// Il a fallu trois crans. A /288 on etait a 90 % du temps reel, a /384 a 101 %
-// — soit AUCUNE marge : la moyenne passait, mais les passages denses
-// decrochaient, et ca s'entendait. Verifie au passage que ce n'etait pas de la
-// saturation : le compteur d'ecretage affiche zero. Deux compensations sont indispensables, sans quoi
+// ⚠️ ON NE PEUT PAS DESCENDRE PLUS BAS, et ce n'est pas une question de gout.
+// La hauteur du YM2612 s'encode en `block` (0 a 7) + `F-Num` (0 a 2047).
+// Reduire la cadence decale toute cette plage vers le haut de log2(diviseur/144)
+// octaves, et md_hz_to_fnum ECRETE silencieusement au-dela de block 7 : les
+// notes aigues sortent alors a une hauteur fausse.
+//
+//   diviseur 144 : plafond de hauteur 13,3 kHz  (aucune note musicale au-dela)
+//   diviseur 288 : plafond  6,6 kHz             (encore au-dessus des notes)
+//   diviseur 480 : plafond  4,0 kHz             (ECRETE des le do8 — essaye,
+//                                                le FM devenait horrible alors
+//                                                que PSG et PCM restaient nets)
+//
+// 288 est donc le maximum utilisable. Il laisse 90 % du temps reel : ca suffit
+// presque, mais pas tout a fait. Le reste doit venir du coeur FM. Deux compensations sont indispensables, sans quoi
 // tout serait faux :
 //   - la HAUTEUR : le moteur calcule ses F-Num a partir de cette cadence, donc
 //     il faut lui donner la meme constante (voir md_replayer.c) ;
@@ -48,7 +58,7 @@ extern "C" {
 // Le prix, assume : le plafond de frequences tombe de 26 a 13 kHz, et ce qui
 // vit au-dessus se REPLIE dans l'audible. Ca s'entend sur une FM tres modulee.
 // Remettre 144 ici quand le coeur FM sera assez rapide.
-#define MD_YM_DIVISEUR 480
+#define MD_YM_DIVISEUR 288
 
 // Horloge du PSG sur Mega Drive NTSC (master / 15).
 #define MD_PSG_CLOCK 3579545

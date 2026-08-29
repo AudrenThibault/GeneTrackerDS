@@ -1331,9 +1331,12 @@ uint32_t fm_engine_base<RegisterType>::clock(uint32_t chanmask)
 	// clock the noise generator
 	int32_t lfo_raw_pm = m_regs.clock_noise_and_lfo();
 
-	// now update the state of all the channels and operators
+	// Ne mettre a jour que les voies ACTIVES. `output()` les saute deja (il
+	// masque par m_active_channels) mais `clock()` les traitait toutes : vingt-
+	// quatre operateurs par echantillon, meme pour des voies eteintes.
+	uint32_t actives = chanmask & m_active_channels;
 	for (uint32_t chnum = 0; chnum < CHANNELS; chnum++)
-		if (bitfield(chanmask, chnum))
+		if (bitfield(actives, chnum))
 			m_channel[chnum]->clock(m_env_counter, lfo_raw_pm);
 
 	// return the envelope counter as it is used to clock ADPCM-A
