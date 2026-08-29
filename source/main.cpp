@@ -873,6 +873,33 @@ int main(void) {
 
     }  // fin de la page SONG
 
+    // ── Temoin de touches, TEMPORAIRE ─────────────────────────────────
+    // SELECT+droite reste sans effet et le code semble correct. Plutot que de
+    // relire une enieme fois, on affiche l'etat reel : touches TENUES, valeur
+    // sous le curseur, page courante. Ca separe « SELECT non detecte » de
+    // « case vide, donc refus legitime de drillIn ».
+    {
+      const int h = keysHeld();
+      char d[24];
+      d[0]='T'; d[1]=':';
+      d[2] = (h & KEY_SELECT) ? 'S' : '-';
+      d[3] = (h & KEY_A)      ? 'A' : '-';
+      d[4] = (h & KEY_B)      ? 'B' : '-';
+      d[5] = (h & KEY_X)      ? 'X' : '-';
+      d[6] = (h & KEY_LEFT)   ? '<' : '-';
+      d[7] = (h & KEY_RIGHT)  ? '>' : '-';
+      d[8] = (h & KEY_UP)     ? 'U' : '-';
+      d[9] = (h & KEY_DOWN)   ? 'D' : '-';
+      d[10]=' ';
+      uint8_t vc = md_replayer_get_song(curCanal, curLigne);
+      d[11]='V'; d[12]=':';
+      if (vc == MD_EMPTY) { d[13]='-'; d[14]='-'; }
+      else { d[13]=kHex[(vc>>4)&15]; d[14]=kHex[vc&15]; }
+      d[15]=' '; d[16]='P'; d[17]=(char)('0'+page); d[18]=0;
+      efface(30, 1, 20);
+      texte(30, 1, d, rvb(31, 28, 10));
+    }
+
     swiWaitForVBlank();
   }
   return 0;
