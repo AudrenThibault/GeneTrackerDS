@@ -327,6 +327,16 @@ private:
 	}
 
 	// internal state
+	// ── Cache de voie (specialisation DS) ─────────────────────────────────
+	// L'algorithme, la retroaction et l'activation des sorties etaient
+	// redecodes depuis les registres A CHAQUE echantillon et pour CHAQUE voie,
+	// alors qu'ils ne changent qu'a l'ecriture d'un registre. ymfm cache les
+	// operateurs mais pas ceux-la. On les rafraichit dans prepare(), qui est
+	// justement appele quand des registres ont bouge.
+	uint16_t m_c_algorithm_ops;            // table d'algorithme deja resolue
+	uint8_t  m_c_feedback;                 // niveau de retroaction
+	uint8_t  m_c_output_any;               // au moins une sortie active ?
+
 	uint32_t m_choffs;                     // channel offset in registers
 	int16_t m_feedback[2];                 // feedback memory for operator 1
 	mutable int16_t m_feedback_in;         // next input value for op 1 feedback (set in output)

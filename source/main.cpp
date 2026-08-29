@@ -92,7 +92,7 @@ static void efface(int col, int lig, int n) {
 // division, donc un modulo par une taille quelconque appelle une routine
 // logicielle — a chaque echantillon, et deux fois (gauche et droite). Avec une
 // puissance de deux, le compilateur le remplace par un simple masque.
-#define SON_ANNEAU  8192                    // ~15 images de reserve
+#define SON_ANNEAU  16384                   // ~0,5 s de reserve
 #define SON_MASQUE  (SON_ANNEAU - 1)
 
 static s16 g_gauche[SON_ANNEAU] __attribute__((aligned(32)));
@@ -239,24 +239,32 @@ int main(void) {
     unsigned tA = timerTick(2);
     // Attendre la ligne 0 puis remplir, comme le fait l'exemple officiel :
     // c'est ce rendez-vous regulier qui donne a maxmod sa notion du temps.
-    // On produit selon le TEMPS ECOULE, pas selon le nombre de tours.
+    // On produit ce que la puce a REELLEMENT consomme depuis le dernier tour.
     //
-    // Produire une image de son par tour ne marche que si la boucle tient les
-    // 60 tours. Elle n'en fait que 15 — le rendu est lourd — et il manquait
-    // donc les trois quarts des echantillons. Ici on vise toujours quelques
-    // images d'avance sur l'horloge, et le retard se rattrape tout seul.
-    // Le timer bat a 32 727 Hz et le son a 32 768 : 0,13 % d'ecart, qu'on
-    // corrige pour que la hauteur ne derive pas.
-    unsigned tSon = timerTick(2);
+    // Ni une quantite fixe par tour — la boucle ne tient pas 60 images par
+    // seconde, produire 548 echantillons en prend deja 11 ms, donc elle tourne
+    // a 30 et il en faut 1096 — ni un rattrapage sans borne, qui s'auto-
+    // entretient. Le temps ecoule est la seule reference juste.
+    //
+    // Le moteur n'a jamais ete en cause : mesure, il produit 51 137
+    // echantillons par seconde pour 32 768 necessaires.
+    unsigned tAv = timerTick(2);
+    unsigned tSon = tAv;
     horloge += (unsigned short)(tSon - tPrecSon);
     tPrecSon = tSon;
     unsigned cible = (unsigned)((unsigned long long)horloge * SON_HZ / kTicksParSeconde)
-                     + SON_IMAGE * 3;
+                     + SON_IMAGE * 4;          // un peu d'avance sur la lecture
     if (cible > g_ecrit) {
       unsigned manque = cible - g_ecrit;
-      if (manque > SON_ANNEAU) manque = SON_ANNEAU;   // trop de retard : on saute
+      // Rattraper au-dela d'un anneau n'a aucun sens : on reecrirait du son
+      // deja joue. Dans ce cas on se resynchronise, quitte a sauter.
+      if (manque > SON_ANNEAU) {
+        g_ecrit = cible - SON_IMAGE * 4;
+        manque = SON_IMAGE * 4;
+      }
       son_remplir((int)manque);
     }
+    cumulAudio += (unsigned short)(timerTick(2) - tAv);
     unsigned tB = timerTick(2);
     cumulAudio += (unsigned short)(tB - tA);   // soustraction 16 bits : le
     cumul     += (unsigned short)(tB - tPrec); // bouclage du compteur est gere
@@ -284,13 +292,15 @@ int main(void) {
     // ── Redessin ────────────────────────────────────────────────────────
     // Le chiffre qui tranche : livres/attendus. 32768 = on tient.
     unsigned liv = livresVu > 99999 ? 99999 : livresVu;
-    char m[20] = {'L','I','V',' ',
+    int a = partAudio > 99 ? 99 : partAudio;
+    char m[24] = {'L','I','V',' ',
                   (char)('0'+(liv/10000)%10), (char)('0'+(liv/1000)%10),
                   (char)('0'+(liv/100)%10),   (char)('0'+(liv/10)%10),
                   (char)('0'+liv%10),
-                  ' ','/',' ','3','2','7','6','8', 0};
-    efface(14, 0, 18);
-    texte(14, 0, m, livresVu < 32000 ? rvb(31, 10, 8) : kEntete);
+                  '/','3','2','7','6','8',' ',
+                  'T','P','S',(char)('0'+a/10),(char)('0'+a%10),'%', 0};
+    efface(12, 0, 23);
+    texte(12, 0, m, livresVu < 32000 ? rvb(31, 10, 8) : kEntete);
 
     // On ne repeint QUE si quelque chose a bouge.
     //

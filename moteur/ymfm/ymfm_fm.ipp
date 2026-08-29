@@ -854,10 +854,28 @@ void fm_channel<RegisterType>::keyonoff(uint32_t states, keyon_type type, uint32
 //  prepare - prepare for clocking
 //-------------------------------------------------
 
+// Table des algorithmes, sortie de output_4op pour que prepare() puisse la
+// consulter. Contenu inchange.
+static uint16_t const s_algorithm_ops_cache[8+4] =
+{
+	0x001|(0x002<<1)|(0x003<<4), 0x000|(0x005<<1)|(0x003<<4),
+	0x000|(0x002<<1)|(0x006<<4), 0x001|(0x000<<1)|(0x007<<4),
+	0x001|(0x000<<1)|(0x003<<4)|(1<<8), 0x001|(0x001<<1)|(0x001<<4)|(1<<8)|(1<<9),
+	0x001|(0x000<<1)|(0x000<<4)|(1<<8)|(1<<9), 0x000|(0x000<<1)|(0x000<<4)|(1<<7)|(1<<8)|(1<<9),
+	0x001|(0x002<<1)|(0x003<<4), 0x000|(0x002<<1)|(0x003<<4)|(1<<7),
+	0x001|(0x000<<1)|(0x003<<4)|(1<<8), 0x000|(0x002<<1)|(0x000<<4)|(1<<7)|(1<<9)
+};
+
 template<class RegisterType>
 bool fm_channel<RegisterType>::prepare()
 {
 	uint32_t active_mask = 0;
+
+	// Rafraichir le cache de voie : ces trois valeurs ne dependent que des
+	// registres, et prepare() n'est appele que lorsqu'ils ont pu changer.
+	m_c_algorithm_ops = s_algorithm_ops_cache[m_regs.ch_algorithm(m_choffs)];
+	m_c_feedback      = (uint8_t)m_regs.ch_feedback(m_choffs);
+	m_c_output_any    = (uint8_t)(m_regs.ch_output_any(m_choffs) != 0);
 
 	// prepare all operators and determine if they are active
 	for (uint32_t opnum = 0; opnum < m_op.size(); opnum++)
@@ -922,7 +940,7 @@ void fm_channel<RegisterType>::output_2op(output_data &output, uint32_t rshift, 
 
 	// operator 1 has optional self-feedback
 	int32_t opmod = 0;
-	uint32_t feedback = m_regs.ch_feedback(m_choffs);
+	uint32_t feedback = m_c_feedback;          // cache : plus de decodage ici
 	if (feedback != 0)
 		opmod = (m_feedback[0] + m_feedback[1]) >> (10 - feedback);
 
@@ -931,7 +949,7 @@ void fm_channel<RegisterType>::output_2op(output_data &output, uint32_t rshift, 
 
 	// now that the feedback has been computed, skip the rest if all volumes
 	// are clear; no need to do all this work for nothing
-	if (m_regs.ch_output_any(m_choffs) == 0)
+	if (m_c_output_any == 0)                   // cache
 		return;
 
 	// Algorithms for two-operator case:
@@ -1031,7 +1049,7 @@ void fm_channel<RegisterType>::output_4op(output_data &output, uint32_t rshift, 
 		ALGORITHM(1,0,3, 0,1,0),    // 10: ((O1 -> O2) + (O3 -> O4)) -> out (O2+O4) [same as 4]
 		ALGORITHM(0,2,0, 1,0,1)     // 11: (O1 + (O2 -> O3) + O4) -> out (O1+O3+O4) [unique]
 	};
-	uint32_t algorithm_ops = s_algorithm_ops[m_regs.ch_algorithm(m_choffs)];
+	uint32_t algorithm_ops = m_c_algorithm_ops;   // cache : table deja resolue
 
 	// populate the opout table
 	int16_t opout[8];
@@ -1052,7 +1070,8 @@ void fm_channel<RegisterType>::output_4op(output_data &output, uint32_t rshift, 
 	// compute the 14-bit volume/value of operator 4; this could be a noise
 	// value on the OPM; all algorithms consume OP4 output at a minimum
 	int32_t result;
-	if (m_regs.noise_enable() && m_choffs == 7)
+	// Le generateur de bruit n'existe que sur OPM ; sur OPN2 ce test est mort.
+	if (RegisterType::OUTPUTS > 2 && m_regs.noise_enable() && m_choffs == 7)
 		result = m_op[3]->compute_noise_volume(am_offset);
 	else
 	{
