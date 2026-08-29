@@ -429,6 +429,7 @@ bool fm_operator<RegisterType>::prepare()
 	// cache the data
 	m_regs.cache_operator_data(m_choffs, m_opoffs, m_cache);
 	m_cache.am_enable = (uint8_t)(m_regs.op_lfo_am_enable(m_opoffs) != 0);
+	m_cache.ssg_enable = (uint8_t)(m_regs.op_ssg_eg_enable(m_opoffs) != 0);
 
 	// clock the key state
 	clock_keystate(uint32_t(m_keyon_live != 0));
@@ -446,8 +447,8 @@ bool fm_operator<RegisterType>::prepare()
 template<class RegisterType>
 void fm_operator<RegisterType>::clock(uint32_t env_counter, int32_t lfo_raw_pm)
 {
-	// clock the SSG-EG state (OPN/OPNA)
-	if (m_regs.op_ssg_eg_enable(m_opoffs))
+	// clock the SSG-EG state (OPN/OPNA) — depuis le cache
+	if (m_cache.ssg_enable)
 		clock_ssg_eg_state();
 	else
 		m_ssg_inverted = false;

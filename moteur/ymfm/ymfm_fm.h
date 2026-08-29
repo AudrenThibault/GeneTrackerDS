@@ -80,6 +80,7 @@ struct opdata_cache
 	// operateurs. Elle ne change qu'a l'ecriture d'un registre, donc elle a sa
 	// place ici, avec le reste du cache.
 	uint8_t am_enable = 0;            // modulation d'amplitude active ?
+	uint8_t ssg_enable = 0;           // enveloppe SSG-EG active ?
 };
 
 
