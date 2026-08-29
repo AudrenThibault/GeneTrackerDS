@@ -475,6 +475,92 @@ int main(void) {
         }
       }
 
+      // ── X : effacer ───────────────────────────────────────────────────
+      // Comportement de LSDJ, repris de deleteCell sur l'iPad : sur une case
+      // PLEINE on l'efface en laissant le trou ; sur une case VIDE on remonte
+      // toute la colonne d'un cran, si bien qu'appuyer plusieurs fois au meme
+      // endroit « aspire » la colonne vers le haut.
+      if ((frappe & KEY_X) && page != PAGE_PROJECT) {
+        if (page == PAGE_SONG) {
+          if (md_replayer_get_song(curCanal, curLigne) == MD_EMPTY) {
+            for (int r = curLigne; r < MD_SONG_ROWS - 1; r++)
+              md_replayer_set_song(curCanal, r, md_replayer_get_song(curCanal, r + 1));
+            md_replayer_set_song(curCanal, MD_SONG_ROWS - 1, MD_EMPTY);
+          } else md_replayer_set_song(curCanal, curLigne, MD_EMPTY);
+        } else if (page == PAGE_CHAIN) {
+          uint8_t noChain = md_replayer_get_song(curCanal, curLigne);
+          if (noChain != MD_EMPTY) {
+            uint8_t ph; int8_t tsp; md_replayer_get_chain(noChain, chLigne, &ph, &tsp);
+            const bool vide = (chCol == 0) ? (ph == MD_EMPTY) : (tsp == 0);
+            const int dern = MD_ROWS_PER_CHAIN - 1;
+            if (vide) {
+              for (int r = chLigne; r < dern; r++) {
+                uint8_t p1,p2; int8_t t1,t2;
+                md_replayer_get_chain(noChain, r, &p1, &t1);
+                md_replayer_get_chain(noChain, r + 1, &p2, &t2);
+                if (chCol == 0) md_replayer_set_chain(noChain, r, p2, t1);
+                else            md_replayer_set_chain(noChain, r, p1, t2);
+              }
+              uint8_t pl; int8_t tl; md_replayer_get_chain(noChain, dern, &pl, &tl);
+              if (chCol == 0) md_replayer_set_chain(noChain, dern, MD_EMPTY, tl);
+              else            md_replayer_set_chain(noChain, dern, pl, 0);
+            } else if (chCol == 0) md_replayer_set_chain(noChain, chLigne, MD_EMPTY, tsp);
+            else                   md_replayer_set_chain(noChain, chLigne, ph, 0);
+          }
+        } else if (page == PAGE_PHRASE) {
+          uint8_t noChain = md_replayer_get_song(curCanal, curLigne);
+          uint8_t ph = MD_EMPTY; int8_t t0 = 0;
+          if (noChain != MD_EMPTY) md_replayer_get_chain(noChain, chLigne, &ph, &t0);
+          if (ph != MD_EMPTY) {
+            uint8_t no,ins,vel,cmd,cv,mc,mv;
+            md_replayer_get_phrase(ph, phLigne, &no,&ins,&vel,&cmd,&cv,&mc,&mv);
+            bool vide;
+            switch (phCol) {
+              case 0: vide = (no == 0); break;
+              case 1: vide = (ins == 0); break;
+              case 2: vide = (vel == 0); break;
+              case 3: case 4: vide = (cmd == MD_EMPTY); break;
+              default: vide = (mc == MD_EMPTY); break;
+            }
+            const int dern = MD_ROWS_PER_PHRASE - 1;
+            if (vide) {
+              for (int r = phLigne; r < dern; r++) {
+                uint8_t a1,b1,c1,d1,e1,f1,g1, a2,b2,c2,d2,e2,f2,g2;
+                md_replayer_get_phrase(ph, r,   &a1,&b1,&c1,&d1,&e1,&f1,&g1);
+                md_replayer_get_phrase(ph, r+1, &a2,&b2,&c2,&d2,&e2,&f2,&g2);
+                switch (phCol) {
+                  case 0: a1 = a2; b1 = b2; break;   // la note emmene son instrument
+                  case 1: b1 = b2; break;
+                  case 2: c1 = c2; break;
+                  case 3: case 4: d1 = d2; e1 = e2; break;
+                  default: f1 = f2; g1 = g2; break;
+                }
+                md_replayer_set_phrase(ph, r, a1,b1,c1,d1,e1,f1,g1);
+              }
+              uint8_t a,b,c,d,e,f,g;
+              md_replayer_get_phrase(ph, dern, &a,&b,&c,&d,&e,&f,&g);
+              switch (phCol) {
+                case 0: a = 0; b = 0; break;
+                case 1: b = 0; break;
+                case 2: c = 0; break;
+                case 3: case 4: d = MD_EMPTY; e = 0; break;
+                default: f = MD_EMPTY; g = 0; break;
+              }
+              md_replayer_set_phrase(ph, dern, a,b,c,d,e,f,g);
+            } else {
+              switch (phCol) {
+                case 0: no = 0; break;
+                case 1: ins = 0; break;
+                case 2: vel = 0; break;
+                case 3: case 4: cmd = MD_EMPTY; cv = 0; break;
+                default: mc = MD_EMPTY; mv = 0; break;
+              }
+              md_replayer_set_phrase(ph, phLigne, no,ins,vel,cmd,cv,mc,mv);
+            }
+          }
+        }
+      }
+
       // START lance et arrete la lecture, depuis n'importe quelle page.
       if (frappe & KEY_START) {
         if (enLecture) { md_replayer_stop(); enLecture = false; }
