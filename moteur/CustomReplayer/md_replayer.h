@@ -863,6 +863,21 @@ void md_replayer_set_psg_arp_macro(int ins_idx, const int8_t *vals, int len,
 int  md_replayer_get_psg_arp_macro(int ins_idx, int8_t *out, int max_len,
                                    int *loop, bool *fixed);
 
+// ── Voies desactivees ─────────────────────────────────────────────────────
+// Desactiver n'est PAS rendre silencieux : une voie muette est toujours jouee
+// et calculee, une voie desactivee ne recoit plus de note et cesse donc de
+// couter du processeur. Les donnees du morceau ne sont jamais modifiees.
+// Coupe les effets continus qui tournent sur une voie. A appeler quand on
+// EFFACE une commande : sans ca, l'effet tourne jusqu'a l'arret de la lecture.
+void md_replayer_clear_active_effects(int channel);
+
+// Remet a zero les compteurs du saut H d'une phrase. A appeler quand la lecture
+// (re)demarre, sinon une boucle deja consommee ne rejouerait pas.
+void md_replayer_reset_phrase_hops(int channel);
+
+void md_replayer_disable_channel(int channel, bool disabled);
+bool md_replayer_is_channel_disabled(int channel);
+
 void md_replayer_mute_channel(int channel, bool muted);
 
 #ifdef __cplusplus

@@ -454,7 +454,21 @@ void md_chip_reset(int output_sample_rate) {
     g_psg = SNG_new(MD_PSG_CLOCK, (uint32_t)g_src_rate);
   if (g_psg) {
     SNG_set_rate(g_psg, (uint32_t)g_src_rate);
-    SNG_set_quality(g_psg, 1);
+    // Qualite 0, et non 1.
+    //
+    // En qualite 1, SNG_calc_stereo fait tourner le PSG a son horloge interne
+    // — 3 579 545 / 16 = 223 721 Hz — pour produire UN echantillon a 26 633 Hz,
+    // soit 8,4 tours de boucle par echantillon, sur quatre canaux.
+    //
+    // Mesure sur la console, morceau en cours : cette seule ligne consommait
+    // les DEUX TIERS du temps audio. Part du temps passee a produire le son :
+    // 94 % avec, 30 % sans ; boucle a 3 images par seconde avec, 59 sans ;
+    // trente repetitions d'anneau par seconde avec (le « disque raye »),
+    // aucune sans. Le YM2612, longtemps soupconne, n'y etait pour rien.
+    //
+    // Le prix : un echantillonnage direct au lieu d'une moyenne, donc un peu
+    // plus de repliement sur les notes PSG aigues. A rediscuter si ca s'entend.
+    SNG_set_quality(g_psg, 0);
     SNG_reset(g_psg);
     g_psg_stereo = 0xFF; // toutes les voies au centre
     SNG_writeGGIO(g_psg, g_psg_stereo);
@@ -491,7 +505,11 @@ void md_chip_set_write_hook(md_write_hook_t hook, void *ctx) {
 // dans les champs sur 5 bits, le quart dans celui sur 4 bits.
 // +4 par doublement de la reduction : 288 -> +4, 384 -> +6, 576 -> +8.
 // Addition en vitesse EFFECTIVE : 4 par doublement de la reduction.
-#define MD_ENV_COMP ((MD_YM_DIVISEUR == 288) ? 4 : (MD_YM_DIVISEUR == 384) ? 6 : \
+// La formule exacte est 4 x log2(diviseur / 144), arrondie. Les crans
+// intermediaires 320 et 336 sont la pour pouvoir doser : sans eux, tout autre
+// diviseur retombait a 0 et les enveloppes trainaient.
+#define MD_ENV_COMP ((MD_YM_DIVISEUR == 288) ? 4 : (MD_YM_DIVISEUR == 320) ? 5 : \
+                     (MD_YM_DIVISEUR == 336) ? 5 : (MD_YM_DIVISEUR == 384) ? 6 : \
                      (MD_YM_DIVISEUR == 480) ? 7 : (MD_YM_DIVISEUR == 576) ? 8 : 0)
 
 static uint8_t md_compense_enveloppe(uint8_t reg, uint8_t val) {
@@ -601,6 +619,21 @@ void md_chip_generate(int16_t *stereo_out, int num_frames) {
     render_source_sample(g_curL, g_curR);
     g_frac_n = 0;
     g_primed = true;
+  }
+
+  // ── Cadences identiques : aucun reechantillonnage a faire ───────────────
+  // C'est le cas sur DS, ou la sortie est calee sur la cadence de la puce. On
+  // evite alors deux multiplications 64 bits, deux decalages et la tenue d'un
+  // reste, a CHAQUE echantillon, pour un resultat qui vaut de toute facon
+  // l'echantillon source.
+  if (g_src_rate_i == g_out_rate_i) {
+    for (int i = 0; i < num_frames; i++) {
+      stereo_out[i * 2 + 0] = clamp16(g_curL);
+      stereo_out[i * 2 + 1] = clamp16(g_curR);
+      g_prevL = g_curL; g_prevR = g_curR;
+      render_source_sample(g_curL, g_curR);
+    }
+    return;
   }
 
   for (int i = 0; i < num_frames; i++) {

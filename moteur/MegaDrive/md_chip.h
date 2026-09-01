@@ -57,7 +57,29 @@ extern "C" {
 //
 // Le prix, assume : le plafond de frequences tombe de 26 a 13 kHz, et ce qui
 // vit au-dessus se REPLIE dans l'audible. Ca s'entend sur une FM tres modulee.
+// 320 : le compromis. Trois choses s'opposent, et ce nombre les arbitre.
+//
+//   diviseur   charge   plafond audible   note la plus aigue
+//   288        97 %     13,3 kHz          sol#7   defauts audio
+//   320        ~87 %    12,0 kHz          fa#7
+//   336        ~83 %    11,4 kHz          fa7
+//   384        ~73 %    10,0 kHz          re#7    repliement audible
+//
+// Le plafond audible est la moitie de la cadence : au-dessus, les harmoniques
+// d'une FM tres modulee se REPLIENT dans l'audible et s'entendent comme un
+// souffle inharmonique sur les instruments. C'est ce qu'a signale l'oreille au
+// diviseur 384. La note la plus aigue vaut 958000 / diviseur, parce que le
+// bloc plafonne a 7 et le F-Num a 2047 ; au-dessus, la hauteur sature.
+//
 // Remettre 144 ici quand le coeur FM sera assez rapide.
+// 288, et non un cran intermediaire.
+//
+// Seuls 288 et 576 sont des multiples de 144 par une puissance de deux, donc
+// les seuls ou la compensation d'enveloppe tombe JUSTE : 4 et 8 exactement.
+// A 320 il faudrait 4,6, et le champ du registre est un entier — les
+// enveloppes tournaient donc environ 10 % trop vite, ce qui change le
+// caractere de tous les instruments FM. C'est vraisemblablement ce qu'on
+// entendait comme « le son est moins bon », plus que le repliement.
 #define MD_YM_DIVISEUR 288
 
 // Horloge du PSG sur Mega Drive NTSC (master / 15).

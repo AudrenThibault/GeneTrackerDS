@@ -28,6 +28,23 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+// ── Memoires rapides du processeur de la DS ────────────────────────────────
+// L'ARM9 a 32 Ko de memoire d'instructions (ITCM) et 16 Ko de memoire de
+// donnees (DTCM) SANS temps d'attente, alors que la memoire principale en
+// impose beaucoup. Le goulot d'etranglement mesure sur la console n'est pas le
+// calcul mais l'acces memoire : 92 % du processeur pour produire le son, alors
+// que l'emulateur — qui ne simule pas ces attentes — annoncait quatre fois
+// moins. On y range donc les tables lues a chaque echantillon et le code le
+// plus repete. Ailleurs que sur DS, ces macros ne font rien.
+#if defined(MD_TARGET_NDS)
+#include <nds/ndstypes.h>
+#define MD_CODE_RAPIDE ITCM_CODE
+#define MD_TABLE_RAPIDE DTCM_DATA
+#else
+#define MD_CODE_RAPIDE
+#define MD_TABLE_RAPIDE
+#endif
+
 namespace ymfm
 {
 
@@ -43,11 +60,11 @@ namespace ymfm
 //  attenuation value, in 4.8 fixed point format
 //-------------------------------------------------
 
-inline uint32_t abs_sin_attenuation(uint32_t input)
+MD_CODE_RAPIDE inline uint32_t abs_sin_attenuation(uint32_t input)
 {
 	// the values here are stored as 4.8 logarithmic values for 1/4 phase
 	// this matches the internal format of the OPN chip, extracted from the die
-	static uint16_t const s_sin_table[256] =
+	static uint16_t const s_sin_table[256] MD_TABLE_RAPIDE =
 	{
 		0x859,0x6c3,0x607,0x58b,0x52e,0x4e4,0x4a6,0x471,0x443,0x41a,0x3f5,0x3d3,0x3b5,0x398,0x37e,0x365,
 		0x34e,0x339,0x324,0x311,0x2ff,0x2ed,0x2dc,0x2cd,0x2bd,0x2af,0x2a0,0x293,0x286,0x279,0x26d,0x261,
@@ -83,7 +100,7 @@ inline uint32_t abs_sin_attenuation(uint32_t input)
 //  linear volume
 //-------------------------------------------------
 
-inline uint32_t attenuation_to_volume(uint32_t input)
+MD_CODE_RAPIDE inline uint32_t attenuation_to_volume(uint32_t input)
 {
 	// the values here are 10-bit mantissas with an implied leading bit
 	// this matches the internal format of the OPN chip, extracted from the die
@@ -92,7 +109,7 @@ inline uint32_t attenuation_to_volume(uint32_t input)
 	// the values are left-shifted by 2 so that a simple right shift is all that
 	// is needed; also the order is reversed to save a NOT on the input
 #define X(a) (((a) | 0x400) << 2)
-	static uint16_t const s_power_table[256] =
+	static uint16_t const s_power_table[256] MD_TABLE_RAPIDE =
 	{
 		X(0x3fa),X(0x3f5),X(0x3ef),X(0x3ea),X(0x3e4),X(0x3df),X(0x3da),X(0x3d4),
 		X(0x3cf),X(0x3c9),X(0x3c4),X(0x3bf),X(0x3b9),X(0x3b4),X(0x3ae),X(0x3a9),
@@ -142,9 +159,9 @@ inline uint32_t attenuation_to_volume(uint32_t input)
 //  fractional scale factor to decrease by)
 //-------------------------------------------------
 
-inline uint32_t attenuation_increment(uint32_t rate, uint32_t index)
+MD_CODE_RAPIDE inline uint32_t attenuation_increment(uint32_t rate, uint32_t index)
 {
-	static uint32_t const s_increment_table[64] =
+	static uint32_t const s_increment_table[64] MD_TABLE_RAPIDE =
 	{
 		0x00000000, 0x00000000, 0x10101010, 0x10101010,  // 0-3    (0x00-0x03)
 		0x10101010, 0x10101010, 0x11101110, 0x11101110,  // 4-7    (0x04-0x07)
@@ -445,8 +462,22 @@ bool fm_operator<RegisterType>::prepare()
 //-------------------------------------------------
 
 template<class RegisterType>
-void fm_operator<RegisterType>::clock(uint32_t env_counter, int32_t lfo_raw_pm)
+MD_CODE_RAPIDE void fm_operator<RegisterType>::clock(uint32_t env_counter, int32_t lfo_raw_pm)
 {
+	// Un operateur eteint ne coute plus rien.
+	//
+	// Touche relachee ET enveloppe au maximum d'attenuation : plus rien ne
+	// peut le reveiller tant qu'on ne rejoue pas la note, et une nouvelle
+	// attaque remet la phase a zero (start_attack, plus bas). Faire avancer
+	// sa phase a chaque echantillon ne sert donc a rien.
+	//
+	// Sur les vingt-quatre operateurs de la puce, la plupart sont dans cet
+	// etat a tout instant : c'est la ou passait le temps qui manquait quand
+	// beaucoup de voix sonnent. Le SSG-EG est exclu, lui seul pouvant
+	// relancer une enveloppe sans nouvelle touche.
+	if (m_key_state == 0 && m_env_attenuation >= 0x3ff && !m_cache.ssg_enable)
+		return;
+
 	// clock the SSG-EG state (OPN/OPNA) — depuis le cache
 	if (m_cache.ssg_enable)
 		clock_ssg_eg_state();
@@ -469,7 +500,7 @@ void fm_operator<RegisterType>::clock(uint32_t env_counter, int32_t lfo_raw_pm)
 //-------------------------------------------------
 
 template<class RegisterType>
-int32_t fm_operator<RegisterType>::compute_volume(uint32_t phase, uint32_t am_offset) const
+MD_CODE_RAPIDE int32_t fm_operator<RegisterType>::compute_volume(uint32_t phase, uint32_t am_offset) const
 {
 	// the low 10 bits of phase represents a full 2*PI period over
 	// the full sin wave
@@ -674,7 +705,7 @@ void fm_operator<RegisterType>::clock_ssg_eg_state()
 //-------------------------------------------------
 
 template<class RegisterType>
-void fm_operator<RegisterType>::clock_envelope(uint32_t env_counter)
+MD_CODE_RAPIDE void fm_operator<RegisterType>::clock_envelope(uint32_t env_counter)
 {
 	// handle attack->decay transitions
 	if (m_env_state == EG_ATTACK && m_env_attenuation == 0)
@@ -749,7 +780,7 @@ void fm_operator<RegisterType>::clock_envelope(uint32_t env_counter)
 //-------------------------------------------------
 
 template<class RegisterType>
-void fm_operator<RegisterType>::clock_phase(int32_t lfo_raw_pm)
+MD_CODE_RAPIDE void fm_operator<RegisterType>::clock_phase(int32_t lfo_raw_pm)
 {
 	// read from the cache, or recalculate if PM active
 	uint32_t phase_step = m_cache.phase_step;
@@ -767,7 +798,7 @@ void fm_operator<RegisterType>::clock_phase(int32_t lfo_raw_pm)
 //-------------------------------------------------
 
 template<class RegisterType>
-uint32_t fm_operator<RegisterType>::envelope_attenuation(uint32_t am_offset) const
+MD_CODE_RAPIDE uint32_t fm_operator<RegisterType>::envelope_attenuation(uint32_t am_offset) const
 {
 	uint32_t result = m_env_attenuation >> m_cache.eg_shift;
 

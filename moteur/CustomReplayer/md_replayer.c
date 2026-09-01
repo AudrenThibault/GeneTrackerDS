@@ -591,6 +591,20 @@ static void md_key_on(int ch) {
   md_chip_ym_key(hw, true);
 }
 
+// ── Voies DESACTIVEES ──────────────────────────────────────────────────────
+// A ne pas confondre avec le silence (md_replayer_mute_channel), qui se
+// contente de mettre le volume a zero : la voie continue alors d'etre jouee et
+// calculee, donc elle coute autant de processeur qu'avant.
+//
+// Une voie desactivee, elle, ne recoit plus aucune note. Elle n'est donc plus
+// active dans le YM2612, et ymfm cesse completement de la calculer — c'est la
+// que se trouve l'economie : une voie FM, ce sont quatre operateurs sur les
+// vingt-quatre, soit un sixieme du gros du travail.
+//
+// Les donnees du morceau ne sont JAMAIS touchees : on refuse de les jouer, on
+// ne les efface pas. Le meme fichier rouvert sur iPad sonne complet.
+bool md_channel_disabled[MD_TOTAL_VOICES] = {false};
+
 static void md_key_off(int ch) {
   if (ch < 0 || ch >= MD_TOTAL_VOICES)
     return;
@@ -905,6 +919,8 @@ static bool md_channel_is_pcm(int c) {
 static void md_play_note(uint8_t ch, uint8_t note) {
   if (ch >= MD_TOTAL_VOICES || note == 0 || note > MD_MAX_NOTE)
     return;
+  if (md_channel_disabled[ch])
+    return;   // desactivee : aucune note, donc aucun calcul
 
   ch_current_note[ch] = note;
 
@@ -1723,10 +1739,58 @@ static void md_chain_seek_in_scope(int c) {
   ch_row_transpose[c] = cr->transpose;
 }
 
-// Fait avancer le canal d'une ligne de phrase, en cascadant sur le chain puis
-// sur le song quand on arrive au bout — sauf si la lecture est limitée.
-static void md_channel_advance(int c) {
-  if (!ch_running[c]) return;
+// ── H : le SAUT, aussi dans une PHRASE ─────────────────────────────────────
+// Il n'existait que dans les tables. Dans une phrase, poser H ne faisait
+// strictement rien — la commande se résolvait en « aucun effet », et le journal
+// des essais le confirmait : H était l'une des deux seules lettres sans action.
+//
+// Mêmes conventions que dans une table, pour qu'il n'y ait qu'un H à retenir :
+//   chiffre de gauche  combien de fois sauter avant de passer outre, 0 = sans fin
+//   chiffre de droite  la ligne visée dans la phrase
+// H00 fait donc boucler la phrase sur elle-même, indéfiniment.
+//
+// Le compteur est indexé par la LIGNE qui porte le H : deux boucles imbriquées
+// comptent chacune leurs tours, comme dans une table.
+//
+// ⚠️ DIVERGENCE assumée avec le projet iPad, qui n'a pas encore ce saut-là.
+static uint8_t ch_phrase_hop[MD_TOTAL_VOICES][MD_ROWS_PER_PHRASE];
+
+void md_replayer_reset_phrase_hops(int c) {
+  if (c < 0 || c >= MD_TOTAL_VOICES) return;
+  for (int r = 0; r < MD_ROWS_PER_PHRASE; r++) ch_phrase_hop[c][r] = 0;
+}
+
+// La ligne courante porte-t-elle un H ?
+static bool md_phrase_row_is_hop(int c) {
+  if (!current_module || ch_phrase[c] < 0) return false;
+  const int row = ch_phrase_row[c];
+  if (row < 0 || row >= MD_ROWS_PER_PHRASE) return false;
+  const md_phrase_row_t *pr =
+      &current_module->phrases[ch_phrase[c] % MD_MAX_PHRASES].rows[row];
+  return pr->cmd != MD_EMPTY && md_table_cmd_kind(pr->cmd) == MD_CMD_HOP;
+}
+
+// Effectue le saut de la ligne courante. Renvoie vrai s'il a eu lieu ; faux
+// quand la boucle est terminée et qu'il faut simplement passer outre.
+static bool md_phrase_hop_prend(int c) {
+  const int row = ch_phrase_row[c];
+  const md_phrase_row_t *pr =
+      &current_module->phrases[ch_phrase[c] % MD_MAX_PHRASES].rows[row];
+  const int fois = (pr->cmdval >> 4) & 0x0F;
+  const int cible = pr->cmdval & 0x0F;
+  if (fois == 0) { ch_phrase_row[c] = cible; return true; }   // sans fin
+  if (ch_phrase_hop[c][row] < fois) {
+    ch_phrase_hop[c][row]++;
+    ch_phrase_row[c] = cible;
+    return true;
+  }
+  ch_phrase_hop[c][row] = 0;                  // boucle terminée
+  return false;
+}
+
+// Avance d'UNE ligne, en cascadant sur le chain puis sur le song quand on
+// arrive au bout — sauf si la lecture est limitée à un chain ou une phrase.
+static void md_channel_pas(int c) {
   ch_phrase_row[c]++;
   if (ch_phrase_row[c] < MD_ROWS_PER_PHRASE)
     return;
@@ -1744,6 +1808,23 @@ static void md_channel_advance(int c) {
     return;
   }
   md_channel_seek(c);
+}
+
+// Fait avancer le canal, puis FRANCHIT tout de suite un éventuel H.
+//
+// Le repère de lecture ne doit JAMAIS s'arrêter sur la ligne qui porte le
+// saut : la boucle se referme AVANT elle. Avec H00 en ligne 3, on parcourt
+// 0 1 2 0 1 2… et la ligne 3 n'est ni affichée ni jouée. C'est ce que fait
+// déjà la table quelques dizaines de lignes plus bas — la phrase, elle,
+// s'arrêtait dessus une image, ce qui s'entendait et se voyait.
+static void md_channel_advance(int c) {
+  if (!ch_running[c]) return;
+  md_channel_pas(c);
+  // La borne évite de tourner sans fin si toutes les lignes portent un H.
+  for (int garde = 0; garde <= MD_ROWS_PER_PHRASE; garde++) {
+    if (!md_phrase_row_is_hop(c)) return;
+    if (!md_phrase_hop_prend(c)) md_channel_pas(c);   // boucle finie : on passe
+  }
 }
 
 // Construit l'événement de la ligne courante du canal, dans le format attendu
@@ -1829,6 +1910,7 @@ static void md_process_row() {
 
   // Process all channels
   for (int c = 0; c < current_module->num_channels; c++) {
+    if (md_channel_disabled[c]) continue;
     md_event_t event = md_channel_event(c);
     md_event_t *ev = &event;
 
@@ -3400,6 +3482,10 @@ void md_replayer_play_from(int song_row) {
       if (song_row < 0) song_row = 0;
       if (song_row >= MD_SONG_ROWS) song_row = MD_SONG_ROWS - 1;
       song_start_row = song_row;
+      // Les boucles H des phrases repartent a zero : sans ca, une boucle deja
+      // consommee au passage precedent ne rejouerait pas.
+      for (int c = 0; c < MD_TOTAL_VOICES; c++)
+        md_replayer_reset_phrase_hops(c);
     }
 
     bool md_replayer_is_playing() { return play_status == MD_PLAYING; }
@@ -3923,6 +4009,42 @@ void md_replayer_play_from(int song_row) {
       if (channel < 0 || channel >= MD_MAX_CHANNELS)
         channel = 0;
       audition_channel = channel;
+    }
+
+    // Active ou desactive une voie. Desactivee, elle est coupee net puis
+    // ignoree : plus aucune note ne l'atteint, donc le YM2612 cesse de la
+    // calculer. Le morceau, lui, garde ses notes intactes.
+    // Coupe net les effets qui tournent sur une voie.
+    //
+    // Un effet continu — vibrato, glissando, arpege — dure jusqu'a ce qu'on le
+    // reecrive avec la valeur 00. EFFACER la case, elle, laisse 0xFF sur la
+    // ligne, que le moteur ignore : l'effet continuait donc de tourner jusqu'a
+    // l'arret de la lecture. L'interface appelle ceci quand on efface une
+    // commande, pour que la suppression s'entende tout de suite.
+    void md_replayer_clear_active_effects(int channel) {
+      if (channel < 0 || channel >= MD_TOTAL_VOICES)
+        return;
+      for (int e = 0; e < MD_EFF_SLOTS; e++) {
+        ch_active_eff[channel][e] = 0xFF;
+        ch_active_eff_val[channel][e] = 0;
+      }
+    }
+
+    void md_replayer_disable_channel(int channel, bool disabled) {
+      if (channel < 0 || channel >= MD_TOTAL_VOICES)
+        return;
+      md_channel_disabled[channel] = disabled;
+      if (disabled) {
+        md_key_off(channel);
+        if (channel == MD_PCM_CHANNEL)
+          md_chip_pcm_stop();
+      }
+    }
+
+    bool md_replayer_is_channel_disabled(int channel) {
+      if (channel < 0 || channel >= MD_TOTAL_VOICES)
+        return false;
+      return md_channel_disabled[channel];
     }
 
     void md_replayer_mute_channel(int channel, bool muted) {

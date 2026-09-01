@@ -1,4 +1,23 @@
+# ── Ce que la construction fabrique ────────────────────────────────────────
 build/
 *.elf
 *.nds
 *.map
+*.o
+
+# ── Ce que le tracker EXPORTE ──────────────────────────────────────────────
+# Cartouches et VGM produits par les pages EXPORT : ce sont des sorties, elles
+# se refabriquent depuis le morceau.
+*.BIN
+*.VGM
+*.bin
+*.vgm
+
+# ── L'image de carte SD de l'emulateur ─────────────────────────────────────
+# 64 Mo de donnees d'essai, sans rapport avec le code.
+carteSD/
+
+# ── Le journal du tracker ──────────────────────────────────────────────────
+MDTRACKER.LOG
+
+.DS_Store

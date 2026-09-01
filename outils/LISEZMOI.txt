@@ -1,0 +1,45 @@
+Pourquoi libnds 1.8.3 est range ici
+===================================
+
+MD Tracker DS ne se compile PAS avec le libnds installe sur la machine
+(actuellement 2.0.x). Il se compile contre libnds 1.8.3, qui vit dans ce
+dossier. Rien n'est installe sur le systeme : le devkitPro de la machine
+reste intact, et les autres projets avec lui.
+
+La raison
+---------
+nds-bootstrap — le chargeur qu'utilise TWiLight Menu++ pour lancer une
+cartouche depuis la carte SD d'une vraie DSi — ne sait pas demarrer ce que
+produit libnds 2.0 / calico. Il affiche « an error has occurred » et
+s'arrete.
+
+Ce n'est pas un defaut du tracker. Verifie sur la console : l'exemple
+« hello world » officiel de devkitPro, compile sans la moindre modification,
+echoue exactement pareil, alors que tous les autres homebrew de la carte
+demarrent normalement. Le defaut est connu et toujours ouvert cote
+nds-bootstrap :
+
+    DS-Homebrew/nds-bootstrap, issue #1777 « libnds 2.0 Support »
+    ouverte le 11 fevrier 2025
+
+Ce qui change entre les deux
+----------------------------
+  libnds 2.0 / calico          libnds 1.8.3 (ici)
+  -------------------          ------------------
+  noyau ARM7 fourni            a compiler soi-meme  -> arm7/main.c
+  pmMainLoop()                 while (true)
+  systemIsTwlMode()            isDSiMode()
+  REG_SCFG_CLK |= ...          setCpuClock(true)
+  en-tete 0x4000, ARM7 en      en-tete 0x200, ARM7 en 0x037F8000
+  memoire principale           (la disposition que les chargeurs attendent)
+
+Le jour ou nds-bootstrap saura lire les cartouches libnds 2.0, on pourra
+revenir dessus : l'ancien build.sh est conserve sous outils/build.sh.calico.
+
+D'ou vient le paquet
+--------------------
+  https://wii.leseratte10.de/devkitPro/libnds/libnds_1.8.3 (2024-09-04)/
+  libnds-1.8.3-1-any.pkg.tar.zst   (conserve ici sous libnds183.pkg.tar.zst)
+
+libnds est sous licence zlib — permissive, sans obligation de diffusion du
+code. Elle est recopiee dans libnds1/opt/devkitpro/libnds/libnds_license.txt.

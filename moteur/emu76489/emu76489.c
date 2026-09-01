@@ -176,7 +176,21 @@ update_output (SNG * sng)
   incr = (sng->base_count >> GETA_BITS);
   sng->base_count &= (1 << GETA_BITS) - 1;
 
-  /* Noise */
+  /* ── Une voie muette ne coute plus rien ─────────────────────────────────
+     Les quatre voies etaient recalculees a chaque echantillon, qu'elles
+     sonnent ou non. Sur le SN76489 le volume 15 est le silence : quand une
+     voie y est ET que sa sortie est deja retombee a zero, plus rien de ce
+     qu'on calculerait ne pourrait s'entendre.
+
+     On attend que ch_out soit retombe a zero avant de sauter : le >>= 1 en
+     fin de voie est une descente progressive, et l'interrompre en cours
+     laisserait une composante continue.
+
+     Le compteur de phase s'arrete pendant le silence. Sans consequence : une
+     note qui reprend fixe de toute facon sa frequence, et la phase d'un bruit
+     ne s'entend pas. */
+  if (sng->noise_volume != 15 || sng->ch_out[3] != 0)
+  {
   sng->noise_count += incr;
   if (sng->noise_count & 0x100)
   {
@@ -196,10 +210,13 @@ update_output (SNG * sng)
     sng->ch_out[3] += voltbl[sng->noise_volume] << 4;
   }
   sng->ch_out[3] >>= 1;
+  }
 
   /* Tone */
   for (i = 0; i < 3; i++)
   {
+    if (sng->volume[i] == 15 && sng->ch_out[i] == 0)
+      continue;
     sng->count[i] += incr;
     if (sng->count[i] & 0x400)
     {
