@@ -80,6 +80,21 @@ extern "C" {
 // enveloppes tournaient donc environ 10 % trop vite, ce qui change le
 // caractere de tous les instruments FM. C'est vraisemblablement ce qu'on
 // entendait comme « le son est moins bon », plus que le repliement.
+// ⚠️⚠️ NE PAS REMETTRE 144. CE N'EST PAS UN DEFAUT A CORRIGER. ⚠️⚠️
+//
+// 288 au lieu de 144 fait tourner la puce a MI-CADENCE, pour moitie moins de
+// calcul — c'est ce qui permet au tracker de tenir sur la machine. Le
+// F-Number est double en consequence, donc la hauteur reste juste.
+//
+// MAIS ce diviseur a un second effet, decouvert en septembre 2026 : tout ce
+// qui est cadence par echantillon — attaques, declins, relachements, LFO —
+// court DEUX FOIS MOINS VITE. Le modulateur vit donc deux fois plus longtemps
+// et le grain FM reste audible bien apres l'attaque.
+//
+// CE SON EST CELUI QU'ON VEUT. C'est le son du tracker, choisi. Revenir a 144
+// le rendrait « propre » — et ferait probablement replonger les performances.
+// Le tracker Mega Drive ne corrige PAS ce diviseur : il ralentit ses propres
+// enveloppes pour sonner pareil (voir md_puces.c, MD_ENV_MOITIE).
 #define MD_YM_DIVISEUR 288
 
 // Horloge du PSG sur Mega Drive NTSC (master / 15).

@@ -343,6 +343,33 @@ static void trame() {
 // note). C'est la convention de LSDJ, et celle du tracker iPad.
 
 // Premier chain / phrase / instrument non utilise, pour le double appui.
+// ⚠️ VIDE **ET** NON REFERENCE D'ABORD. Ne regarder que les references
+// rendait une chaine qui porte deja des phrases mais que le SONG ne designe
+// pas — on croyait en creer une neuve et on retombait sur un brouillon.
+// C'est la meme regle que la version du clonage profond, plus bas.
+// ── CE QUE FAIT CHAQUE COMMANDE, EN TOUTES LETTRES ───────────────────────
+// Une lettre seule ne se retient pas : « U » ne dit pas « fine tune ». Les
+// libelles viennent de md_table_cmds (md_replayer.c), qui associe chaque
+// lettre a son effet — ce n'est donc pas une interpretation. L'ORDRE EST
+// CELUI DE CETTE TABLE, et il ne doit pas en diverger.
+static const char *kNomCmd[] = {
+  "TABLE", "ARPEGGIO", "NOTE DELAY", "HOP", "NOTE CUT", "TONE PORTAMENTO",
+  "GLOBAL VOLUME", "PANNING", "PITCH BEND", "RETRIG NOTE", "TEMPO",
+  "VIBRATO", "TREMOLO", "VOLUME SLIDE", "PORTA + VOL SLIDE",
+  "VIBRATO + VOL SLIDE", "SPEED", "POSITION JUMP", "PATTERN BREAK",
+  "VIBRATO DEPTH", "FINE TUNE"
+};
+// Les commandes MD, par leur code DefleMask, dans l'ordre de md_mdcmds.
+static const char *kNomMdCmd[] = {
+  "ARPEGGIO", "PORTA UP", "PORTA DOWN", "TONE PORTA", "VIBRATO",
+  "PORTA + VOL", "VIBRATO + VOL", "TREMOLO", "PANNING", "SET SPEED 1",
+  "VOLUME SLIDE", "POSITION JUMP", "RETRIG", "PATTERN BREAK", "SET SPEED 2",
+  "VIBRATO DEPTH", "FINE TUNE", "NOTE CUT", "NOTE DELAY",
+  "LFO", "FEEDBACK", "LEVEL OP1", "LEVEL OP2", "LEVEL OP3",
+  "LEVEL OP4", "MULTIPLIER",
+  "ATTACK ALL", "ATTACK OP1", "ATTACK OP2", "ATTACK OP3"
+};
+
 static int chainLibre(void) {
   bool pris[MD_MAX_CHAINS]; for (int i = 0; i < MD_MAX_CHAINS; i++) pris[i] = false;
   for (int c = 0; c < 10; c++)
@@ -350,6 +377,15 @@ static int chainLibre(void) {
       uint8_t v = md_replayer_get_song(c, r);
       if (v != MD_EMPTY && v < MD_MAX_CHAINS) pris[v] = true;
     }
+  for (int i = 0; i < MD_MAX_CHAINS; i++) {
+    if (pris[i]) continue;
+    bool vide = true;
+    for (int r = 0; r < MD_ROWS_PER_CHAIN && vide; r++) {
+      uint8_t ph; int8_t tr; md_replayer_get_chain((uint8_t)i, r, &ph, &tr);
+      if (ph != MD_EMPTY) vide = false;
+    }
+    if (vide) return i;
+  }
   for (int i = 0; i < MD_MAX_CHAINS; i++) if (!pris[i]) return i;
   return MD_MAX_CHAINS - 1;
 }
@@ -361,11 +397,36 @@ static int phraseLibre(void) {
       uint8_t ph; int8_t t; md_replayer_get_chain(ch, r, &ph, &t);
       if (ph != MD_EMPTY && ph < MD_MAX_PHRASES) pris[ph] = true;
     }
+  // Vide ET non referencee d'abord — voir chainLibre ci-dessus.
+  for (int i = 0; i < MD_MAX_PHRASES; i++) {
+    if (pris[i]) continue;
+    bool vide = true;
+    for (int r = 0; r < MD_ROWS_PER_PHRASE && vide; r++) {
+      uint8_t no,i2,ve,cm,cv,mc,mv;
+      md_replayer_get_phrase((uint8_t)i, r, &no,&i2,&ve,&cm,&cv,&mc,&mv);
+      // La velocite VIDE vaut MD_EMPTY, pas zero : zero est un volume nul.
+      if (no || i2 || ve != MD_EMPTY || cm != MD_EMPTY || mc != MD_EMPTY)
+        vide = false;
+    }
+    if (vide) return i;
+  }
   for (int i = 0; i < MD_MAX_PHRASES; i++) if (!pris[i]) return i;
   return MD_MAX_PHRASES - 1;
 }
 
 static inline int borne(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+// La SORTIE est rangee dans un ordre qui n'est pas celui de l'affichage :
+// 0 au centre, 1 a gauche, 2 a droite. Ajouter 1 a la valeur brute envoyait
+// donc le centre vers la GAUCHE, et sautait le centre au retour ; a fond a
+// gauche on n'atteignait jamais L. On se deplace sur le RANG VISIBLE — L C R —
+// et on s'arrete aux deux bouts.
+static const int kPanRang[3] = { 1, 0, 2 };   // rang visible -> valeur rangee
+static int panDeplace(int pan, int sens) {
+  int rang = 1;                                // le centre, par defaut
+  for (int i = 0; i < 3; i++) if (kPanRang[i] == pan) rang = i;
+  return kPanRang[borne(rang + sens, 0, 2)];
+}
 
 int main(void) {
   // ── Horloge : passer la DSi a 134 MHz ─────────────────────────────────
@@ -922,11 +983,14 @@ int main(void) {
   // Les morceaux ouvrables sont en clair, le reste en attenue.
   // Le navigateur sert a deux choses : ouvrir un MORCEAU, ou charger un
   // ECHANTILLON. Ce qu'il met en avant depend de ce qu'on est venu chercher.
-  int navGenre = 0;   // 0 = morceaux, 1 = echantillons
+  // Le navigateur sert a TROIS choses maintenant : ouvrir un morceau, charger
+  // un echantillon, ou choisir une ROM Mega Drive a importer.
+  int navGenre = 0;   // 0 = morceaux, 1 = echantillons, 2 = ROMs
   auto estOuvrable = [&](const char *n) {
     const int L = (int)strlen(n);
     if (L < 5) return false;
     if (navGenre == 1) return !strcasecmp(n + L - 4, ".wav");
+    if (navGenre == 2) return !strcasecmp(n + L - 4, ".bin");
     return !strcasecmp(n + L - 4, ".mdm") || !strcasecmp(n + L - 4, ".dmf");
   };
 
@@ -987,7 +1051,8 @@ int main(void) {
   // l'enregistrement du projet ; les deux exports s'en servent aussi, pour
   // qu'on puisse nommer la cartouche ou le VGM au lieu de subir le nom du
   // projet.
-  enum { NOM_PROJET = 0, NOM_ROM = 1, NOM_VGM = 2 };
+  // NOM_ROM nomme la ROM LECTEUR ; NOM_ROM_TRK la ROM GeneTracker editable.
+  enum { NOM_PROJET = 0, NOM_ROM = 1, NOM_VGM = 2, NOM_ROM_TRK = 3 };
   int nomPour = NOM_PROJET;
   static char sauveNom[9] = "";
   int nomLig = 0, nomCol = 0;   // position dans la grille de caracteres
@@ -1509,15 +1574,16 @@ int main(void) {
     const int l0 = curL(), c0 = curC();
     const int n = clipLignes;
 
-    // ── Le collage INSERE, il n'ecrase pas ────────────────────────────────
+    // ── SUR SONG, ET SUR SONG SEULEMENT, LE COLLAGE INSERE ────────────────
     // Tout ce qui se trouve sous le curseur descend d'autant de lignes que le
-    // presse-papier en contient, et ce qui deborde en bas est perdu. C'est ce
-    // qu'on attend d'un tracker : coller une mesure ne doit pas effacer la
-    // suivante, elle doit la repousser.
+    // presse-papier en contient, et ce qui deborde en bas est perdu : coller
+    // une mesure ne doit pas effacer la suivante, elle doit la repousser.
+    // TOUTES les colonnes descendent, pas seulement celles qu'on a copiees —
+    // decaler une seule voie desynchroniserait le morceau.
     //
-    // Sur l'ecran SONG, ce sont TOUTES les colonnes qui descendent, pas
-    // seulement celles qu'on a copiees : decaler une seule voie desynchro-
-    // niserait le morceau.
+    // ⚠️ NULLE PART AILLEURS. Une chain et une phrase ont seize rangees fixes
+    // qui font une mesure : y inserer decalerait le rythme au lieu de
+    // remplacer ce qu'on vise. Le collage y ecrase.
     if (page == PAGE_SONG) {
       for (int c = 0; c < 10; c++)
         for (int r = MD_SONG_ROWS - 1; r >= l0 + n; r--)
@@ -1531,23 +1597,11 @@ int main(void) {
             md_replayer_set_song(reel(c0 + c), l0 + l, clipSong[c][l]);
       }
     } else if (page == PAGE_CHAIN) {
-      for (int r = MD_ROWS_PER_CHAIN - 1; r >= l0 + n; r--) {
-        uint8_t ph; int8_t tr;
-        md_replayer_get_chain((uint8_t)chainId, r - n, &ph, &tr);
-        md_replayer_set_chain((uint8_t)chainId, r, ph, tr);
-      }
       for (int l = 0; l < n; l++) {
         if (l0 + l >= MD_ROWS_PER_CHAIN) break;
         md_replayer_set_chain((uint8_t)chainId, l0 + l, clipChPh[l], clipChTr[l]);
       }
     } else {
-      for (int r = MD_ROWS_PER_PHRASE - 1; r >= l0 + n; r--) {
-        uint8_t a[7];
-        md_replayer_get_phrase((uint8_t)phraseId, r - n,
-                               &a[0],&a[1],&a[2],&a[3],&a[4],&a[5],&a[6]);
-        md_replayer_set_phrase((uint8_t)phraseId, r,
-                               a[0],a[1],a[2],a[3],a[4],a[5],a[6]);
-      }
       for (int l = 0; l < n; l++) {
         if (l0 + l >= MD_ROWS_PER_PHRASE) break;
         const uint8_t *d3 = clipPhr[l];
@@ -2026,6 +2080,10 @@ int main(void) {
               md_replayer_set_instr_pcm_volume(ins,
                   borne(md_replayer_get_instr_pcm_volume(ins) + pas, 0, 255));
             } else if (inLigne == 5) {
+              md_replayer_set_instr_gen_val(ins, MD_GEN_PROP_PANNING,
+                  panDeplace(md_replayer_get_instr_gen_val(ins,
+                                 MD_GEN_PROP_PANNING), sens));
+            } else if (inLigne == 6) {
               changeTable(ins, sens);           // la table, en bas comme ailleurs
             } else if (ech >= 0 && (inLigne == 2 || inLigne == 3)) {
               // Ces deux-la appartiennent a l'ECHANTILLON, pas a l'instrument :
@@ -2076,8 +2134,8 @@ int main(void) {
             }
             case 1:    // sortie : gauche, centre, droite
               md_replayer_set_instr_gen_val(ins, MD_GEN_PROP_PANNING,
-                  borne(md_replayer_get_instr_gen_val(ins,
-                        MD_GEN_PROP_PANNING) + sens, 0, 2));
+                  panDeplace(md_replayer_get_instr_gen_val(ins,
+                                 MD_GEN_PROP_PANNING), sens));
               break;
             case 2:    // desaccord fin
               md_replayer_set_instr_gen_val(ins, MD_GEN_PROP_FINE_TUNE,
@@ -2116,18 +2174,35 @@ int main(void) {
             default: changeTable(ins, sens); break;   // 11 : la table, en bas
             }
           } else {
-          if (inLigne == 11) {
+          if (inLigne == 18) {
+            md_replayer_set_instr_gen_val(ins, MD_GEN_PROP_PANNING,
+                  panDeplace(md_replayer_get_instr_gen_val(ins,
+                                 MD_GEN_PROP_PANNING), sens));
+          } else if (inLigne == 19) {
             changeTable(ins, sens);             // la table, en bas comme ailleurs
+          } else if (inLigne >= 13) {
+            // Les cinq reglages qui manquaient : la modulation d'amplitude et
+            // de frequence du LFO, le LFO lui-meme et sa vitesse, le desaccord.
+            // Ils existaient dans le moteur sans qu'aucun ecran ne les montre.
+            static const int glob5[5] = {
+              MD_GEN_PROP_AMS, MD_GEN_PROP_PMS, MD_GEN_PROP_LFO_ENABLE,
+              MD_GEN_PROP_LFO_FREQ, MD_GEN_PROP_FINE_TUNE };
+            static const int maxi5[5] = { 3, 7, 1, 7, 127 };
+            const int k5 = inLigne - 13;
+            md_replayer_set_instr_gen_val(ins, glob5[k5],
+                borne(md_replayer_get_instr_gen_val(ins, glob5[k5])
+                      + (k5 == 4 ? pas : sens), 0, maxi5[k5]));
           } else if (inLigne < 2) {
             static const int glob[2] = { MD_GEN_PROP_ALGORITHM, MD_GEN_PROP_FEEDBACK };
             int v = borne(md_replayer_get_instr_gen_val(ins, glob[inLigne]) + pas, 0, 7);
             md_replayer_set_instr_gen_val(ins, glob[inLigne], v);
           } else {
-            static const int prop[9] = {
+            static const int prop[11] = {
               MD_OP_PROP_MULTIPLE, MD_OP_PROP_DETUNE, MD_OP_PROP_TOTAL_LEVEL,
               MD_OP_PROP_ATTACK, MD_OP_PROP_DECAY, MD_OP_PROP_SUSTAIN_LEVEL,
-              MD_OP_PROP_SUSTAIN_RATE, MD_OP_PROP_RELEASE, MD_OP_PROP_KEY_SCALE };
-            static const int maxi[9] = { 15, 7, 127, 31, 31, 15, 31, 15, 3 };
+              MD_OP_PROP_SUSTAIN_RATE, MD_OP_PROP_RELEASE, MD_OP_PROP_KEY_SCALE,
+              MD_OP_PROP_AM, MD_OP_PROP_SSG_EG };
+            static const int maxi[11] = { 15, 7, 127, 31, 31, 15, 31, 15, 3, 1, 15 };
             // Le Total Level du YM2612 est une ATTENUATION : 0 est le maximum
             // de niveau, 127 le silence. Affiche brut, le reglage marchait a
             // l'envers — a fond il ne restait rien. On l'inverse, comme le
@@ -2144,8 +2219,14 @@ int main(void) {
             //
             // L'iPad n'inverse que le Total Level et laisse le sustain a
             // l'envers : c'est un defaut de l'iPad, pas une regle a recopier.
-            static const bool inverse[9] = { false, false, true, true, true,
-                                             true, false, true, false };
+            // ⚠️ LES QUATRE TEMPS DE L'ENVELOPPE SONT DES VITESSES DANS LA
+            // PUCE, et se lisent comme des DUREES a l'ecran : monter la valeur
+            // allonge le son. Le declin de maintien echappait a la regle — il
+            // marchait donc a l'envers des trois autres. Il est desormais
+            // inverse lui aussi, et s'appelle SUSTAIN DECAY.
+            static const bool inverse[11] = { false, false, true, true, true,
+                                             true, true, true, false,
+                                             false, false };
             const int k = inLigne - 2;
             int brut = md_replayer_get_instr_op_val(ins, inCol, prop[k]);
             int vu = inverse[k] ? maxi[k] - brut : brut;
@@ -2257,14 +2338,23 @@ int main(void) {
         // desormais table, sortie et desaccord, comme sur l'iPad.
         // Un champ de plus PARTOUT : la table, tout en bas. Elle etait absente
         // des pages FM et PCM, et coincee en haut sur les pages PSG.
-        const int nbChamps = (g == GENRE_FM) ? 12 : (g == GENRE_PSG) ? 11
-                           : (g == GENRE_BRUIT) ? 12 : 6;
+        // La SORTIE (L C R) existait sur PSG et sur le bruit, mais pas en FM
+        // ni en PCM : ces deux voies-la ne pouvaient donc pas etre placees
+        // dans le stereo, alors que la puce le permet sur toutes.
+        // Ordre canonique de la page FM, TABLE EN DERNIER :
+        //   0 ALGORITHM  1 FEEDBACK  2..12 les onze parametres d'operateur
+        //   13 AM SENS  14 PM SENS  15 LFO  16 LFO SPEED  17 FINETUNE
+        //   18 OUTPUT   19 TABLE
+        // L'ecran du haut n'a que dix-neuf rangees et la grille les remplit :
+        // tout ce qui vient apres se dessine sur l'ecran du BAS.
+        const int nbChamps = (g == GENRE_FM) ? 20 : (g == GENRE_PSG) ? 11
+                           : (g == GENRE_BRUIT) ? 12 : 7;
         if (appui & KEY_UP)    inLigne = borne(inLigne - 1, 0, nbChamps - 1);
         if (appui & KEY_DOWN)  inLigne = borne(inLigne + 1, 0, nbChamps - 1);
         // Les colonnes ne servent que la ou il y a plusieurs valeurs de front :
         // les quatre operateurs en FM, les seize pas d'une macro ailleurs.
         int nbCol = 0;
-        if (g == GENRE_FM && inLigne >= 2 && inLigne < 11) nbCol = 4;
+        if (g == GENRE_FM && inLigne >= 2 && inLigne < 13) nbCol = 4;
         else if (g == GENRE_PSG || g == GENRE_BRUIT) {
           // Meme numerotation commune que l'affichage et l'edition.
           const int canon = (g == GENRE_BRUIT || inLigne < 3) ? inLigne
@@ -2420,8 +2510,8 @@ int main(void) {
         // tempo, A ne fait rien tout seul : c'est A + gauche/droite qui change
         // la valeur, et A seul ne doit donc pas declencher d'action.
         else {
-          if (appui & KEY_UP)   menuProjet = borne(menuProjet - 1, 0, 6);
-          if (appui & KEY_DOWN) menuProjet = borne(menuProjet + 1, 0, 6);
+          if (appui & KEY_UP)   menuProjet = borne(menuProjet - 1, 0, 8);
+          if (appui & KEY_DOWN) menuProjet = borne(menuProjet + 1, 0, 8);
 
           if (menuProjet == 0) {
             if ((keysHeld() & KEY_A) && (appui & (KEY_LEFT | KEY_RIGHT))) {
@@ -2475,6 +2565,19 @@ int main(void) {
               nomPour = NOM_ROM;
               dialogueNom = true; nomLig = 3; nomCol = 9;
               assombrirDemande = true; pageVue = -1;
+            } else if (menuProjet == 7) {
+              // La ROM GeneTracker : on la NOMME d'abord, comme les autres.
+              strncpy(sauveNom, nomProjet, 8); sauveNom[8] = 0;
+              nomPour = NOM_ROM_TRK;
+              dialogueNom = true; nomLig = 3; nomCol = 9;
+              assombrirDemande = true; pageVue = -1;
+            } else if (menuProjet == 8) {
+              // Importer : on choisit une ROM sur la carte.
+              if (carteOK) { creeSiAbsent(dossierRoms);
+                             strcpy(dossier, dossierRoms);
+                             causeTour = "ROMS";
+                             navGenre = 2; scanne(); navigateur = true;
+                             pageRetour = PAGE_PROJECT; pageVue = -1; }
             } else if (menuProjet == 4) {
               // LOAD DEMO, et ELLE SEULE. Ce « sinon » attrapait toute ligne
               // non traitee : la ligne REGION tombait dedans et chargeait la
@@ -2513,8 +2616,9 @@ int main(void) {
         //   A, table posee    on la retient, pour ce rappel-la
         if (page == PAGE_INSTR) {
           const int g3 = genreInstr(instrVoie, instrId);
-          const int champTable = (g3 == GENRE_PCM) ? 5
-                               : (g3 == GENRE_PSG) ? 10 : 11;
+          const int champTable = (g3 == GENRE_PCM) ? 6
+                               : (g3 == GENRE_PSG) ? 10
+                               : (g3 == GENRE_FM)  ? 19 : 11;
           if (inLigne == champTable) {
             const int t3 = md_replayer_get_instr_table(instrId);
             const bool aucune = (t3 < 0 || t3 == MD_EMPTY);
@@ -2645,8 +2749,9 @@ int main(void) {
         if (page == PAGE_INSTR) {
           // Effacer le champ TABLE, c'est le remettre sur OFF.
           const int g4 = genreInstr(instrVoie, instrId);
-          const int champTable = (g4 == GENRE_PCM) ? 5
-                               : (g4 == GENRE_PSG) ? 10 : 11;
+          const int champTable = (g4 == GENRE_PCM) ? 6
+                               : (g4 == GENRE_PSG) ? 10
+                               : (g4 == GENRE_FM)  ? 19 : 11;
           if (inLigne == champTable) md_replayer_set_instr_table(instrId, -1);
         } else if (page == PAGE_TABLE) {
           uint8_t vol,c1,v1,c2,v2,mc,mv; int8_t tsp;
@@ -2945,6 +3050,21 @@ int main(void) {
       // Changement de page : on repeint tout, en-tete compris.
       const int decalSauve = g_colOrigine;
       g_colOrigine = 0;                  // l'en-tete se cale sur les bords
+
+      // ⚠️ trame() ne repeint que l'ecran DU HAUT. L'ecran du bas garde donc
+      // ce que la page precedente y avait laisse — et la page instrument FM y
+      // ecrit ses reglages generaux. En changeant de page ils restaient
+      // affiches sous une page qui n'a rien a voir.
+      //
+      // On le vide donc ICI, au moment precis du changement, plutot que de le
+      // deduire d'un drapeau garde d'une image sur l'autre. La rangee 2 est
+      // epargnee : elle porte le nom du morceau, qui appartient a cet ecran.
+      if (!(page == PAGE_INSTR && genreInstr(instrVoie, instrId) == GENRE_FM)) {
+        ecran(bas);
+        for (int l = 3; l < 19; l++) efface(0, l, 41);
+        ecran(g_fond);
+      }
+
       trame();
       entretienSon();   // trame() couvre l'ecran entier : on rend la main au son
       titre(0, 0, "MD TRACKER", kTitre);
@@ -3003,10 +3123,11 @@ int main(void) {
         // plus long. Sur la puce ce sont des vitesses, ou monter le nombre
         // raccourcit la note — exactement l'inverse de ce que le mot annonce.
         // SUSTAIN RATE garde son sens de cadence, son nom le dit.
-        static const char *par[9] = {
+        static const char *par[11] = {
           "MULTIPLIER", "DETUNE", "OUTPUT LEVEL", "ATTACK", "DECAY",
-          "SUSTAIN LEVEL", "SUSTAIN RATE", "RELEASE", "RATE SCALING" };
-        for (int k = 0; k < 9; k++) titre(0, 8 + k, par[k], kTitre);
+          "SUSTAIN LEVEL", "SUSTAIN DECAY", "RELEASE", "RATE SCALING",
+          "AM ENABLE", "SSG-EG" };
+        for (int k = 0; k < 11; k++) titre(0, 8 + k, par[k], kTitre);
         }
       } else if (page == PAGE_PHRASE) {
         // Les mots entiers ne tiennent plus : la police doublee coute la
@@ -3111,9 +3232,22 @@ int main(void) {
       // c'est la qu'on la demande. Un reglage qui ne sert qu'a l'export n'a
       // rien a faire dans un menu ou on peut le changer par megarde — et il y
       // tombait dans le « sinon » qui charge la demo.
-      const char *entrees[7] = { "TEMPO", "SAVE SONG", "LOAD SONG",
+      // ⚠️ DEUX EXPORTS ROM, ET CE NE SONT PAS LES MEMES.
+      //   EXPORT PLAYER ROM  la cartouche qui JOUE le morceau, telle qu'elle
+      //                      existe depuis toujours : elle enregistre le flux
+      //                      de registres, rien n'y est modifiable.
+      //   EXPORT MD PROJECT (ROM)  le projet lui-meme, grave dans une
+      //                      cartouche GeneTracker : il reste EDITABLE, on le
+      //                      recharge et on le retouche sur la Mega Drive.
+      // On choisit ; l'un ne remplace pas l'autre.
+      //
+      // A l'import l'intitule change de sujet, et c'est voulu : ce qui SORT
+      // d'un export est une ROM, ce qu'on RECUPERE d'un import est un projet.
+      // La ROM n'y est que la source.
+      const char *entrees[9] = { "TEMPO", "SAVE SONG", "LOAD SONG",
                                  "NEW SONG", "LOAD DEMO",
-                                 "EXPORT ROM", "EXPORT VGM" };
+                                 "EXPORT PLAYER ROM", "EXPORT VGM",
+                                 "EXPORT MD PROJECT (ROM)", "IMPORT ROM PROJECT" };
       // ── On ne repeint QUE si quelque chose a change ────────────────────
       // Ces huit lignes plus leurs valeurs etaient redessinees a CHAQUE image,
       // curseur immobile compris. Les ecritures couraient alors apres le
@@ -3131,7 +3265,7 @@ int main(void) {
       vuMenu = menuProjet; vuBpm = bpmVu2; vuCarte = carteOK;
       vuDemo = demoChargee;
       strncpy(vuNom, nomProjet, sizeof(vuNom) - 1); vuNom[sizeof(vuNom) - 1] = 0;
-      for (int i = 0; i < 7; i++) {
+      for (int i = 0; i < 9; i++) {
         const int lig = 4 + i * 2;
         efface(0, lig, 34);
         texte(0, lig, (i == menuProjet) ? ">" : " ",
@@ -3162,12 +3296,12 @@ int main(void) {
       // On ne redessine que ce qui a CHANGE. Les trente-six valeurs etaient
       // repeintes a chaque image, curseur immobile compris — c'est ce que
       // mesurait le D17 releve pendant l'edition d'un instrument.
-      static int vuGlob[2] = {-1, -1}, vuOp[9][4];
+      static int vuGlob[2] = {-1, -1}, vuOp[11][4];
       static int vuIns = -1, vuLig = -1, vuCol = -1;
       const bool toutRefaire = ecranEfface || (ins != vuIns) ||
                                (inLigne != vuLig) || (inCol != vuCol);
       if (ins != vuIns) {
-        for (int k = 0; k < 9; k++)
+        for (int k = 0; k < 11; k++)
           for (int o = 0; o < 4; o++) vuOp[k][o] = -1;
         vuGlob[0] = vuGlob[1] = -1;
       }
@@ -3205,12 +3339,15 @@ int main(void) {
         // Meme raison : cette page etait entierement redessinee a chaque
         // image, d'ou les bandes pendant la lecture.
         static int vuEch = -2, vuLigP = -1, vuVol = -1, vuTabP = -2;
+        static int vuPanP = -2;
         const int echVu = md_replayer_get_instr_sample(ins);
         const int tabVu = md_replayer_get_instr_table(ins);
+        const int panVu = md_replayer_get_instr_gen_val(ins, MD_GEN_PROP_PANNING);
         const bool refairePCM = toutRefaire || echVu != vuEch ||
                                 inLigne != vuLigP || tabVu != vuTabP ||
+                                panVu != vuPanP ||
                                 md_replayer_get_instr_pcm_volume(ins) != vuVol;
-        vuEch = echVu; vuLigP = inLigne; vuTabP = tabVu;
+        vuEch = echVu; vuLigP = inLigne; vuTabP = tabVu; vuPanP = panVu;
         vuVol = md_replayer_get_instr_pcm_volume(ins);
         if (genre == GENRE_PCM && !refairePCM) {
           // rien a redessiner
@@ -3225,14 +3362,15 @@ int main(void) {
           //   2 BASE NOTE     la note a laquelle il joue a sa vitesse naturelle
           //   3 LOOP          point de bouclage, -- si aucun
           //   4 VOLUME
-          //   5 TABLE        la table attachee, comme sur les autres pages
-          static const char *nom[6] = { "LOAD SAMPLE", "SAMPLE", "BASE NOTE",
-                                        "LOOP", "VOLUME", "TABLE" };
+          //   5 OUTPUT       la place dans le stereo, comme sur les pages PSG
+          //   6 TABLE        la table attachee, comme sur les autres pages
+          static const char *nom[7] = { "LOAD SAMPLE", "SAMPLE", "BASE NOTE",
+                                        "LOOP", "VOLUME", "OUTPUT", "TABLE" };
           // On efface avant d'ecrire : « LOAD SAMPLE » etait redessine par
           // dessus lui-meme a chaque image, en changeant de couleur selon le
           // curseur. Les deux teintes se superposaient une image sur deux, ce
           // qui se voit exactement comme un clignotement.
-          for (int k = 0; k < 6; k++) {
+          for (int k = 0; k < 7; k++) {
             efface(0, 5 + k * 2, 13);
             titre(0, 5 + k * 2, nom[k],
                   (k == 0 && inLigne == 0) ? kAccent : kTitre);
@@ -3282,22 +3420,30 @@ int main(void) {
             efface(14, 13, 2);
             texte(14, 13, d3, (inLigne == 4) ? kAccent : kData); }
 
-          { char d4[4]; texteTable(ins, d4);
-            efface(14, 15, 3);
-            texte(14, 15, d4, (inLigne == 5) ? kAccent : kData); }
+          // La sortie, dessinee comme sur la page PSG : les trois lettres
+          // restent lisibles, seule celle qui est choisie est en couleur. Une
+          // valeur qui defile ne dirait pas qu'il y a trois positions.
+          { const int pan = md_replayer_get_instr_gen_val(ins,
+                                MD_GEN_PROP_PANNING);
+            static const char *lcr[3] = { "L", "C", "R" };
+            static const int val[3] = { 1, 0, 2 };   // gauche, centre, droite
+            for (int i2 = 0; i2 < 3; i2++) {
+              efface(14 + i2 * 2, 15, 1);
+              texte(14 + i2 * 2, 15, lcr[i2],
+                    (inLigne == 5) ? ((pan == val[i2]) ? kAccent : kData)
+                                   : ((pan == val[i2]) ? kTitre : kData));
+            } }
 
-          // Combien de place reste-t-il dans la banque : utile avant de
-          // charger un long echantillon.
-          // Combien d'echantillons ET combien de place : la banque se remplit
-          // par l'un ou par l'autre — 32 emplacements, mais 512 Ko seulement,
-          // soit huit echantillons de deux secondes.
-          { char d4[48];
-            siprintf(d4, "BANK %d/%d  %luK/%luK  %s",
-                     md_replayer_sample_count(), MD_MAX_SAMPLES,
-                     (unsigned long)(md_replayer_pcm_used() / 1024),
-                     (unsigned long)(md_replayer_pcm_capacity() / 1024),
-                     msgPCM);
-            efface(0, 16, 38); texte(0, 16, d4, kData); }
+          { char d4[4]; texteTable(ins, d4);
+            efface(14, 17, 3);
+            texte(14, 17, d4, (inLigne == 6) ? kAccent : kData); }
+
+          // La ligne « BANK 0/32 0K/512K » est PARTIE : quatre nombres sans
+          // phrase, que rien sur cette page ne permettait de rattacher a quoi
+          // que ce soit. L'occupation de la banque a sa place ailleurs, dans
+          // un ecran qui parle de la banque — pas au milieu des reglages d'un
+          // instrument.
+          efface(0, 16, 38);
         } else {
           // ── PSG et BRUIT, la page COMPLETE de l'iPad ──────────────────
           // Elle ne portait que l'enveloppe et les macros : la table, la
@@ -3310,7 +3456,11 @@ int main(void) {
           //   5 VOL LEN   6 VOL LOOP   7 VOL (16 pas)
           //   8 ARP LEN   9 ARP LOOP  10 ARP FIXED  11 ARP (16 pas)
           const bool bruit = (genre == GENRE_BRUIT);
-          const int canon = (bruit || inLigne < 4) ? inLigne : inLigne + 1;
+          // ⚠️ Le seuil est 3, pas 4 : c'est le rang de NOISE MODE, la ligne
+          // que la voie PSG saute. L'edition et la navigation comptaient
+          // deja ainsi ; seul le dessin etait decale, si bien que sur PSG le
+          // curseur s'allumait une ligne PLUS BAS que celle qu'on reglait.
+          const int canon = (bruit || inLigne < 3) ? inLigne : inLigne + 1;
 
           uint8_t vol[MD_PSG_MACRO_MAX]; int bcl = MD_EMPTY;
           const int nvol = md_replayer_get_psg_vol_macro(ins, vol,
@@ -3425,15 +3575,19 @@ int main(void) {
         texte(15, 4 + k, d, (inLigne == k) ? kAccent : kData);
       }
 
-      // Les neuf parametres, pour chacun des quatre operateurs.
-      static const int prop[9] = {
+      // Les ONZE parametres, pour chacun des quatre operateurs. AM ENABLE et
+      // SSG-EG existaient dans le moteur sans qu'aucun ecran ne les montre.
+      static const int prop[11] = {
         MD_OP_PROP_MULTIPLE, MD_OP_PROP_DETUNE, MD_OP_PROP_TOTAL_LEVEL,
         MD_OP_PROP_ATTACK, MD_OP_PROP_DECAY, MD_OP_PROP_SUSTAIN_LEVEL,
-        MD_OP_PROP_SUSTAIN_RATE, MD_OP_PROP_RELEASE, MD_OP_PROP_KEY_SCALE };
-      static const int maxiVu[9] = { 15, 7, 127, 31, 31, 15, 31, 15, 3 };
-      static const bool inverseVu[9] = { false, false, true, true, true,
-                                         true, false, true, false };
-      for (int k = 0; k < 9; k++)
+        MD_OP_PROP_SUSTAIN_RATE, MD_OP_PROP_RELEASE, MD_OP_PROP_KEY_SCALE,
+        MD_OP_PROP_AM, MD_OP_PROP_SSG_EG };
+      static const int maxiVu[11] = { 15, 7, 127, 31, 31, 15, 31, 15, 3, 1, 15 };
+      // Meme table que pour l'edition — voir le commentaire la-bas.
+      static const bool inverseVu[11] = { false, false, true, true, true,
+                                          true, true, true, false,
+                                          false, false };
+      for (int k = 0; k < 11; k++)
         for (int o = 0; o < 4; o++) {
           int v = md_replayer_get_instr_op_val(ins, o, prop[k]);
           if (inverseVu[k]) v = maxiVu[k] - v;
@@ -3445,16 +3599,66 @@ int main(void) {
                 (inLigne == k + 2 && inCol == o) ? kAccent : kData);
         }
 
-      // La table attachee, sous les operateurs. Elle manquait completement sur
-      // cette page : un instrument FM ne pouvait donc pas en avoir.
-      { static int vuTabFM = -2, vuLigFM = -1;
+      // ── Le bas de la page, sur l'ECRAN DU BAS ─────────────────────────
+      // L'ecran du haut n'a que dix-neuf rangees et la grille des operateurs
+      // les remplit jusqu'a la derniere. Tout ce qui suit va donc en dessous,
+      // dans le meme ordre : les reglages generaux, la sortie, une rangee de
+      // vide, puis la table — toujours la derniere.
+      { static int vuTabFM = -2, vuLigFM = -1, vuPanFM = -2, vuG5[5] = {-2,-2,-2,-2,-2};
+        static const int glob5[5] = {
+          MD_GEN_PROP_AMS, MD_GEN_PROP_PMS, MD_GEN_PROP_LFO_ENABLE,
+          MD_GEN_PROP_LFO_FREQ, MD_GEN_PROP_FINE_TUNE };
+        static const char *nom5[5] = {
+          "AM SENS", "PM SENS", "LFO", "LFO SPEED", "FINETUNE" };
         const int t2 = md_replayer_get_instr_table(ins);
-        if (toutRefaire || t2 != vuTabFM || inLigne != vuLigFM) {
-          vuTabFM = t2; vuLigFM = inLigne;
-          titre(0, 18, "TABLE", kTitre);
-          char d[4]; texteTable(ins, d);
-          efface(15, 18, 3);
-          texte(15, 18, d, (inLigne == 11) ? kAccent : kData);
+        const int pan = md_replayer_get_instr_gen_val(ins, MD_GEN_PROP_PANNING);
+        bool bouge5 = false;
+        for (int k = 0; k < 5; k++)
+          if (md_replayer_get_instr_gen_val(ins, glob5[k]) != vuG5[k]) bouge5 = true;
+
+        if (toutRefaire || bouge5 || t2 != vuTabFM || inLigne != vuLigFM ||
+            pan != vuPanFM) {
+          vuTabFM = t2; vuLigFM = inLigne; vuPanFM = pan;
+
+          const int sauveCol = g_colOrigine;
+          g_colOrigine = 0;
+          ecran(bas);
+          // L'ecran du bas porte la grille de SONG quand on vient de la : il
+          // faut le vider en arrivant, sinon les deux pages se superposent.
+          // ⚠️ On n'efface QUE sous le nom du morceau : la rangee 2 lui
+          // appartient, et une rangee de vide l'en separe.
+          if (toutRefaire) for (int l = 3; l < 19; l++) efface(0, l, 41);
+          // Deux rangees de vide en tete : les deux ecrans se touchent sans
+          // separation, et colle en rangee zero ce bloc se lirait comme la
+          // suite de la grille.
+          for (int k = 0; k < 5; k++) {
+            const int v = md_replayer_get_instr_gen_val(ins, glob5[k]);
+            vuG5[k] = v;
+            efface(0, 4 + k, 30);
+            titre(0, 4 + k, nom5[k], kTitre);
+            char d[3] = { kHex[(v >> 4) & 15], kHex[v & 15], 0 };
+            texte(15, 4 + k, d, (inLigne == 13 + k) ? kAccent : kData);
+          }
+
+          efface(0, 9, 30);
+          titre(0, 9, "OUTPUT", kTitre);
+          { static const char *lcr[3] = { "L", "C", "R" };
+            static const int val[3] = { 1, 0, 2 };
+            for (int i2 = 0; i2 < 3; i2++)
+              texte(15 + i2 * 2, 9, lcr[i2],
+                    (inLigne == 18) ? ((pan == val[i2]) ? kAccent : kData)
+                                    : ((pan == val[i2]) ? kTitre : kData));
+          }
+
+          // Une rangee de vide avant la table, comme entre FEEDBACK et OP.
+          efface(0, 10, 30);
+          efface(0, 11, 30);
+          titre(0, 11, "TABLE", kTitre);
+          { char d[4]; texteTable(ins, d);
+            texte(15, 11, d, (inLigne == 19) ? kAccent : kData); }
+
+          ecran(g_fond);
+          g_colOrigine = sauveCol;
         } }
       }
     }
@@ -3501,6 +3705,27 @@ int main(void) {
         texte(17, 1, "CMD", kTitre);
         texte(22, 1, "MD CMD", kTitre);
         g_decalYpx = 0;
+
+        // Le nom de la commande pointee, centre sous la grille — meme regle
+        // que sur la page PHRASE. Les colonnes 2-3 et 4-5 portent les deux
+        // commandes a lettre, 6-7 la commande MD.
+        { uint8_t vo, c1, v1, c2, v2, mc2, mv2; int8_t tr;
+          md_replayer_get_table_row(tableId, tabLigne, &vo, &tr,
+                                    &c1, &v1, &c2, &v2, &mc2, &mv2);
+          const uint8_t nNom  = (uint8_t)(sizeof(kNomCmd) / sizeof(kNomCmd[0]));
+          const uint8_t nNomM = (uint8_t)(sizeof(kNomMdCmd) / sizeof(kNomMdCmd[0]));
+          const char *nomT = 0;
+          if ((tabCol == 2 || tabCol == 3) && c1 != MD_EMPTY && c1 < nNom)
+            nomT = kNomCmd[c1];
+          else if ((tabCol == 4 || tabCol == 5) && c2 != MD_EMPTY && c2 < nNom)
+            nomT = kNomCmd[c2];
+          else if ((tabCol == 6 || tabCol == 7) && mc2 != MD_EMPTY && mc2 < nNomM)
+            nomT = kNomMdCmd[mc2];
+          efface(0, 20, kCols);
+          if (nomT) {
+            int lg = 0; while (nomT[lg]) lg++;
+            titre((kCols - lg) / 2, 20, nomT, kTitre);
+          } }
 
         for (int l = 0; l < MD_TABLE_ROWS; l++) {
           if ((l & 7) == 0) entretienSon();
@@ -3606,6 +3831,34 @@ int main(void) {
                                  (idCourant != vuId) || (ligCour != vuLig2) ||
                                  (colCour != vuCol2);
       vuPage2 = page; vuId = idCourant; vuLig2 = ligCour; vuCol2 = colCour;
+
+      // ── LE NOM DE LA COMMANDE, SOUS LA GRILLE ─────────────────────────
+      // ⚠️ Une lettre seule ne se retient pas. Tant que le curseur est sur une
+      // colonne de commande, son nom s'ecrit CENTRE sous la grille, separe
+      // d'elle par une rangee vide, et disparait des qu'on en sort. La grille
+      // s'arrete a la rangee 18 sur les trente-deux de l'ecran : la place est
+      // la, inutile d'aller sur l'ecran du bas.
+      if (refaireGrille) {
+        const char *nomC = 0;
+        if (page == PAGE_PHRASE && noPhrase != MD_EMPTY) {
+          uint8_t no,i2,ve,cm,cv,mc,mv;
+          md_replayer_get_phrase(noPhrase, phLigne, &no,&i2,&ve,&cm,&cv,&mc,&mv);
+          // ⚠️ On borne sur la TAILLE DU TABLEAU DE NOMS, pas sur le nombre
+          // de commandes : si la table du moteur grandit sans qu'on ajoute le
+          // libelle, on ne lit pas a cote.
+          const uint8_t nNom  = (uint8_t)(sizeof(kNomCmd) / sizeof(kNomCmd[0]));
+          const uint8_t nNomM = (uint8_t)(sizeof(kNomMdCmd) / sizeof(kNomMdCmd[0]));
+          if ((phCol == 3 || phCol == 4) && cm != MD_EMPTY && cm < nNom)
+            nomC = kNomCmd[cm];
+          else if ((phCol == 5 || phCol == 6) && mc != MD_EMPTY && mc < nNomM)
+            nomC = kNomMdCmd[mc];
+        }
+        efface(0, 20, kCols);
+        if (nomC) {
+          int lg = 0; while (nomC[lg]) lg++;
+          titre((kCols - lg) / 2, 20, nomC, kTitre);
+        }
+      }
 
       for (int l = 0; refaireGrille && l < nl; l++) {
         if (l == 0) entretienSon();
@@ -3816,13 +4069,15 @@ int main(void) {
     // rend la place a ce qui sert pendant qu'on travaille, et on la prend en
     // BAS pour degager le haut de l'ecran.
     {
+      // ⚠️ « DSI 134MHZ  BPM xxx » est PARTI : c'etait une mesure de mise au
+      // point posee sous les yeux en permanence. Le BPM se regle et se lit
+      // dans PROJECT, la frequence n'interesse que le journal. Il ne reste
+      // que le nom du morceau.
       static char vuBas[3][42] = { "", "", "" };
-      char l1[42], l2[42];
+      char l1[42];
       siprintf(l1, "%s", nomProjet[0] ? nomProjet : "(UNNAMED)");
-      siprintf(l2, "%s   BPM %d", modeDSi ? "DSI 134MHZ" : "DS 67MHZ",
-               (int)(md_replayer_get_bpm() + 0.5));
-      if (ecranEfface || strcmp(vuBas[0], l1) || strcmp(vuBas[1], l2)) {
-        strcpy(vuBas[0], l1); strcpy(vuBas[1], l2);
+      if (ecranEfface || strcmp(vuBas[0], l1)) {
+        strcpy(vuBas[0], l1);
         // L'ecran du BAS a ses propres coordonnees : il ne doit pas heriter du
         // centrage de la page affichee en haut. Il en heritait, et l'effacement
         // commencait alors trois colonnes trop loin — les premieres lettres du
@@ -3836,10 +4091,27 @@ int main(void) {
         // l'ecran du haut. Deux lignes de vide levent le doute.
         ecran(bas);
         efface(0, 2, 41); texte(0, 2, l1, kEntete);
-        efface(0, 3, 41); texte(0, 3, l2, kData);
         ecran(g_fond);
         g_colOrigine = decalHaut;
       }
+
+      // ── En QUITTANT la page FM, on rend l'ecran du bas ────────────────
+      // Elle y ecrit ses reglages generaux ; sans ce nettoyage ils restaient
+      // affiches sous la page suivante, qui n'a rien a voir. Le nom du
+      // morceau, lui, appartient a l'ecran du bas et reste.
+      { static bool basPrisParFM = false;
+        const bool fmIci = (page == PAGE_INSTR &&
+                            genreInstr(instrVoie, instrId) == GENRE_FM);
+        if (basPrisParFM && !fmIci) {
+          const int decalH2 = g_colOrigine;
+          g_colOrigine = 0;
+          ecran(bas);
+          for (int l = 3; l < 19; l++) efface(0, l, 41);
+          ecran(g_fond);
+          g_colOrigine = decalH2;
+          vuBas[0][0] = 0;         // le nom sera repose a l'image suivante
+        }
+        basPrisParFM = fmIci; }
     }
 
     // On n'ecrit sur la carte que lecture ARRETEE.
@@ -3910,8 +4182,9 @@ int main(void) {
       // cartouche et au VGM, et sans ca on ne sait plus ce qu'on est en train
       // de faire.
       titre(fc + 2, fl + 1,
-            (nomPour == NOM_ROM) ? "EXPORT ROM AS:"
-          : (nomPour == NOM_VGM) ? "EXPORT VGM AS:" : "SAVE AS:", kTitre);
+            (nomPour == NOM_ROM)     ? "EXPORT PLAYER ROM AS:"
+          : (nomPour == NOM_ROM_TRK) ? "EXPORT MD PROJECT AS:"
+          : (nomPour == NOM_VGM)     ? "EXPORT VGM AS:" : "SAVE AS:", kTitre);
       // La region est montree ET modifiable ici : c'est elle qui decide de la
       // cadence gravee, et se tromper rend le morceau 20 % trop lent sur la
       // console d'en face.
@@ -3946,7 +4219,7 @@ int main(void) {
         // « .MDM », l'extension d'un projet : on lisait donc « .MDM » en
         // exportant une cartouche ou un VGM.
         titre(fc + 17, fl + 3,
-              (nomPour == NOM_ROM) ? ".BIN"
+              (nomPour == NOM_ROM || nomPour == NOM_ROM_TRK) ? ".BIN"
             : (nomPour == NOM_VGM) ? ".VGM" : ".MDM", kAttenue); }
       g_colOrigine = decalFenetre;
     }
