@@ -2457,11 +2457,23 @@ int main(void) {
                     md_replayer_stop(); enLecture = false;
                     if (md_rom_projet_importe(rom, &plan, 0)) {
                       char nomM[11]; md_rom_nom(rom, &plan, 0, nomM);
-                      strncpy(nomProjet, nomM, sizeof(nomProjet) - 1);
-                      nomProjet[sizeof(nomProjet) - 1] = 0;
+                      // ⚠️ LE NOM PREND UN SUFFIXE « MD », ET C'EST VOULU.
+                      // Le meme morceau existe presque toujours des deux
+                      // cotes : sans le suffixe, enregistrer la version qui
+                      // vient de la cartouche ecraserait la version DS, qui
+                      // porte le meme nom. « TUTU » devient donc « TUTUMD ».
+                      // On coupe a six caracteres pour que les deux lettres
+                      // tiennent dans les huit d'un nom de fichier.
+                      { int k = 0;
+                        while (k < 6 && nomM[k]) { nomProjet[k] = nomM[k]; k++; }
+                        nomProjet[k++] = 'M'; nomProjet[k++] = 'D';
+                        nomProjet[k] = 0; }
                       modifie = true;
-                      if (n > 1) siprintf(msgProjet, "IMPORTED %s (1/%d)", nomM, n);
-                      else       siprintf(msgProjet, "IMPORTED %s", nomM);
+                      // On annonce le nom SOUS LEQUEL il s'enregistrera, pas
+                      // celui qu'il portait dans la ROM : c'est celui-la que
+                      // l'utilisateur va retrouver.
+                      if (n > 1) siprintf(msgProjet, "IMPORTED AS %s (1/%d)", nomProjet, n);
+                      else       siprintf(msgProjet, "IMPORTED AS %s", nomProjet);
                       siprintf(e, "IMPORT ROM : %s, %d morceau(x)", nomM, n);
                     } else { strcpy(msgProjet, "IMPORT FAILED");
                              siprintf(e, "IMPORT : ECHEC"); }
@@ -3372,8 +3384,15 @@ int main(void) {
       vuMenu = menuProjet; vuBpm = bpmVu2; vuCarte = carteOK;
       vuDemo = demoChargee;
       strncpy(vuNom, nomProjet, sizeof(vuNom) - 1); vuNom[sizeof(vuNom) - 1] = 0;
+      // ⚠️ UNE RANGEE PAR ENTREE, PAS UNE SUR DEUX.
+      // L'ecran ne montre que 19 rangees : 192 pixels divises par une cellule
+      // de 10. Avec dix entrees espacees, la derniere tombait en rangee 22 —
+      // les deux dernieres, IMPORT ROM PROJECT et ABOUT, etaient dessinees
+      // hors de l'ecran et donc introuvables. C'est l'ESPACEMENT qui debordait,
+      // pas la taille des lettres : les serrer les garde lisibles, les
+      // rapetisser ne ferait que les rendre penibles.
       for (int i = 0; i < 10; i++) {
-        const int lig = 4 + i * 2;
+        const int lig = 4 + i;
         efface(0, lig, 34);
         texte(0, lig, (i == menuProjet) ? ">" : " ",
               (i == menuProjet) ? kEntete : kData);
@@ -3390,7 +3409,7 @@ int main(void) {
       efface(14, 6, 26);
       texte(14, 6, nomProjet[0] ? nomProjet : "(UNNAMED)", kData);
       texte(14, 8, carteOK ? "" : "NO SD CARD", kData);
-      texte(14, 12, demoChargee ? "LOADED" : "", kData);
+      texte(14, 8, demoChargee ? "LOADED" : "", kData);   // en face de LOAD DEMO
       }
     }
 
