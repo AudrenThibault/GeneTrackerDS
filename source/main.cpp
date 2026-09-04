@@ -1701,7 +1701,7 @@ int main(void) {
     // La DATE DE COMPILATION dans l'en-tete : sans elle, impossible de savoir
     // si un journal vient de la derniere ROM ou d'une ancienne restee sur la
     // carte — ce qui a deja fait chercher un defaut la ou il n'y en avait pas.
-    siprintf(e, "=== MD TRACKER DS  %s  %d HZ  DIVISEUR %d  BUILD %s %s ===",
+    siprintf(e, "=== GENETRACKERDS  %s  %d HZ  DIVISEUR %d  BUILD %s %s ===",
              modeDSi ? "DSI 134MHZ" : "DS 67MHZ", (int)SON_HZ, MD_YM_DIVISEUR,
              __DATE__, __TIME__);
     journal(e);
@@ -3140,7 +3140,7 @@ int main(void) {
 
       trame();
       entretienSon();   // trame() couvre l'ecran entier : on rend la main au son
-      titre(0, 0, "MD TRACKER", kTitre);
+      titre(0, 0, "GENETRACKERDS", kTitre);
       // Le titre de page se colle au bord DROIT : il ne doit pas subir le
       // decalage de centrage, sinon il flotte au milieu de nulle part.
       switch (page) {

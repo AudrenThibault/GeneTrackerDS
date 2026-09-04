@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-#  Compilation de MD Tracker DS.
+#  Compilation de GeneTrackerDS.
 #
 #  Pourquoi un script et pas un Makefile : le chemin du projet contient des
 #  espaces (« Megadrive ipad tracker »), et les regles de devkitARM ne les
@@ -104,7 +104,7 @@ arm-none-eabi-g++ -specs=ds_arm9.specs -g $ARCH \
 # demarre a coup sur, mais tourne a 67 MHz.
 echo "  fabrication de la cartouche..."
 ndstool -c "$CIBLE.nds" -h 0x4000 -9 "$CIBLE.elf" -7 "$CIBLE.arm7.elf" \
-  -b "$LIBNDS/icon.bmp" "MD Tracker;Mega Drive tracker;YM2612 + SN76489" \
+  -b "$LIBNDS/icon.bmp" "GeneTrackerDS;Mega Drive tracker;YM2612 + SN76489" \
   >/dev/null
 
 # ndstool 2.3.1 n'a aucune option pour le code unite : il le tenait de calico.
