@@ -988,7 +988,18 @@ int main(void) {
   // ECHANTILLON. Ce qu'il met en avant depend de ce qu'on est venu chercher.
   // Le navigateur sert a TROIS choses maintenant : ouvrir un morceau, charger
   // un echantillon, ou choisir une ROM Mega Drive a importer.
-  int navGenre = 0;   // 0 = morceaux, 1 = echantillons, 2 = ROMs
+  int navGenre = 0;   // 0 = morceaux, 1 = echantillons, 2 = ROMs,
+                      // 3 = les morceaux d'une SAUVEGARDE de cartouche
+  // ⚠️ Une sauvegarde tient plusieurs morceaux, et le bon n'est presque jamais
+  // le premier — sur la cartouche d'essai, TUTU est au rang 1. Alors au lieu
+  // d'en choisir un a l'aveugle, on RECHARGE la liste du navigateur avec les
+  // morceaux qu'elle contient : meme affichage, meme defilement, meme B pour
+  // revenir. L'image reste en memoire entre les deux ecrans, c'est tout ce que
+  // ce detour coute.
+  static uint8_t *sauveImg = 0;
+  static uint32_t sauveLg = 0;
+  static int sauveRangs[MD_SAUVE_MAX];
+  static char navEntete[128] = "";
   auto estOuvrable = [&](const char *n) {
     const int L = (int)strlen(n);
     if (L < 5) return false;
@@ -2415,8 +2426,14 @@ int main(void) {
         else if (navigateur) {
           if (appui & KEY_UP)   selFichier = borne(selFichier - 1, 0, nbFichiers ? nbFichiers - 1 : 0);
           if (appui & KEY_DOWN) selFichier = borne(selFichier + 1, 0, nbFichiers ? nbFichiers - 1 : 0);
-          if (frappe & KEY_B) { navigateur = false; page = pageRetour;
-                                pageVue = -1; }
+          if (frappe & KEY_B) {
+            if (navGenre == 3) {
+              // On remonte a la liste des fichiers, pas hors du navigateur :
+              // s'etre trompe de morceau ne doit pas obliger a tout refaire.
+              if (sauveImg) { free(sauveImg); sauveImg = 0; sauveLg = 0; }
+              navEntete[0] = 0; navGenre = 2; scanne();
+            } else { navigateur = false; page = pageRetour; pageVue = -1; }
+          }
           if ((frappe & KEY_A) && nbFichiers > 0 && typeFic[selFichier] == 2) {
             entre(fichiers[selFichier]);
           }
@@ -2433,6 +2450,7 @@ int main(void) {
                      fichiers[selFichier]);
             causeTour = "IMPORT ROM";
             char e[130];
+            bool resteNav = false;   // vrai quand on passe a la liste des morceaux
             FILE *fr = fopen(chemin, "rb");
             if (!fr) { strcpy(msgProjet, "ROM UNREADABLE"); }
             else {
@@ -2444,9 +2462,33 @@ int main(void) {
               if (rom && fread(rom, 1, (size_t)lg, fr) == (size_t)lg) {
                 md_rom_plan_t plan;
                 if (!md_rom_plan_lit(rom, (uint32_t)lg, &plan)) {
-                  // Une ROM d'avant le plan, ou pas une ROM GeneTracker.
-                  strcpy(msgProjet, "NO PROJECT IN THIS ROM");
-                  siprintf(e, "IMPORT : PAS DE PLAN DANS %s", fichiers[selFichier]);
+                  // ── PAS UNE ROM. ALORS UNE SAUVEGARDE ? ────────────────
+                  // ⚠️ CE CAS-LA N'EST PAS UN REPLI, C'EST LE CAS COURANT.
+                  // La ROM ne contient que ce qu'on y a grave depuis un
+                  // ordinateur ; tout ce qu'on compose SUR LA CONSOLE va dans
+                  // la sauvegarde, que l'EverDrive recopie dans EDMD/SAVE.
+                  // Les deux fichiers finissent en .bin, et refuser le second
+                  // revenait a refuser precisement le travail qu'on cherchait
+                  // a rapatrier.
+                  static char noms[MD_SAUVE_MAX][11];
+                  const int ns = md_sauve_lit(rom, (uint32_t)lg, noms, sauveRangs);
+                  if (ns > 0) {
+                    // La liste du navigateur devient la liste des morceaux.
+                    if (sauveImg) free(sauveImg);
+                    sauveImg = rom; sauveLg = (uint32_t)lg; rom = 0;
+                    for (int k = 0; k < ns; k++) {
+                      siprintf(fichiers[k], "%02d  %s", sauveRangs[k], noms[k]);
+                      typeFic[k] = 1;
+                    }
+                    nbFichiers = ns; selFichier = 0; hautFichier = 0;
+                    navGenre = 3; resteNav = true;
+                    siprintf(navEntete, "SAVE : %d SONG(S)", ns);
+                    siprintf(e, "SAUVEGARDE : %d morceau(x)", ns);
+                  } else {
+                    strcpy(msgProjet, "NOT A GENETRACKER ROM OR SAVE");
+                    siprintf(e, "IMPORT : NI PLAN NI GTLIB1 DANS %s",
+                             fichiers[selFichier]);
+                  }
                 } else {
                   const int n = md_rom_morceaux(rom, &plan);
                   // ⚠️ Le premier morceau, et on le DIT quand il y en a
@@ -2485,6 +2527,40 @@ int main(void) {
               fclose(fr);
               journal(e);
             }
+            msgProjetJusqu = secondes + 4;
+            if (!resteNav) { navigateur = false; page = pageRetour; pageVue = -1; }
+          }
+          // ── UN MORCEAU CHOISI DANS LA SAUVEGARDE ───────────────────────
+          else if ((frappe & KEY_A) && nbFichiers > 0 && navGenre == 3
+                   && sauveImg) {
+            causeTour = "IMPORT SAVE";
+            char e[130];
+            const int rang = sauveRangs[selFichier];
+            md_replayer_stop(); enLecture = false;
+            if (md_sauve_importe(sauveImg, sauveLg, rang)) {
+              // Le nom est derriere « NN  » dans l'entree affichee.
+              const char *nomM = fichiers[selFichier] + 4;
+              // Meme suffixe « MD » qu'a l'import de ROM, et pour la meme
+              // raison : le morceau existe des deux cotes sous le meme nom.
+              { int k = 0;
+                while (k < 6 && nomM[k]) { nomProjet[k] = nomM[k]; k++; }
+                nomProjet[k++] = 'M'; nomProjet[k++] = 'D';
+                nomProjet[k] = 0; }
+              modifie = true;
+              // ⚠️ ON LE DIT QUAND LA BANQUE EST VIDE. Une sauvegarde ne porte
+              // pas les echantillons : ils sont dans la ROM. Les instruments
+              // gardent leur numero d'echantillon, qui ne designe rien tant
+              // qu'on n'a pas importe la ROM ou charge les WAV.
+              if (md_replayer_sample_count() == 0)
+                siprintf(msgProjet, "IMPORTED AS %s - NO SAMPLES", nomProjet);
+              else
+                siprintf(msgProjet, "IMPORTED AS %s", nomProjet);
+              siprintf(e, "IMPORT SAUVEGARDE : rang %d, %s", rang, nomProjet);
+            } else { strcpy(msgProjet, "IMPORT FAILED");
+                     siprintf(e, "IMPORT SAUVEGARDE : ECHEC rang %d", rang); }
+            journal(e);
+            free(sauveImg); sauveImg = 0; sauveLg = 0;
+            navEntete[0] = 0; navGenre = 2;
             msgProjetJusqu = secondes + 4;
             navigateur = false; page = pageRetour; pageVue = -1;
           }
@@ -3231,17 +3307,19 @@ int main(void) {
       // On ne repeint que si la liste ou le curseur ont bouge. Redessinee a
       // chaque image, elle raye l'ecran de bandes pendant la lecture — les
       // ecritures courent apres le balayage — et vole du temps au son.
-      static int vuSel = -1, vuHautF = -1, vuNb = -1;
+      static int vuSel = -1, vuHautF = -1, vuNb = -1, vuGenre = -1;
       const bool refaireListe = ecranEfface || selFichier != vuSel ||
-                                hautFichier != vuHautF || nbFichiers != vuNb;
+                                hautFichier != vuHautF || nbFichiers != vuNb ||
+                                navGenre != vuGenre;
       vuSel = selFichier; vuHautF = hautFichier; vuNb = nbFichiers;
+      vuGenre = navGenre;
       if (refaireListe) {
       // La liste tient en douze lignes ; elle defile avec le curseur.
       const int kVues = 12;
       if (selFichier < hautFichier) hautFichier = selFichier;
       if (selFichier > hautFichier + kVues - 1) hautFichier = selFichier - kVues + 1;
       efface(0, 2, 41);
-      texte(0, 2, dossier, kEntete);
+      texte(0, 2, navEntete[0] ? navEntete : dossier, kEntete);
       for (int i = 0; i < kVues; i++) {
         const int k = hautFichier + i;
         efface(0, 4 + i, 41);

@@ -44,6 +44,31 @@ void md_rom_nom(const uint8_t *rom, const md_rom_plan_t *p, int i, char nom[11])
 // echantillons qu'il emploie. Rend 0 en cas d'echec.
 int md_rom_projet_importe(const uint8_t *rom, const md_rom_plan_t *p, int i);
 
+// ── LA SAUVEGARDE DE LA CARTOUCHE ────────────────────────────────────────
+// ⚠️ CE N'EST PAS LA ROM, ET C'EST LA QUE VIT LE TRAVAIL FAIT SUR LA CONSOLE.
+// La ROM ne contient que ce qu'on y a grave depuis un ordinateur ; tout ce
+// qu'on ecrit sur la Mega Drive va dans sa memoire de sauvegarde, que
+// l'EverDrive recopie dans EDMD/SAVE/<nom>.bin a l'extinction. Les deux
+// portent l'extension .bin, ce qui prete a confusion — on les distingue a leur
+// marque : GENETRK-PLAN01 pour une ROM, GTLIB1 pour une sauvegarde.
+//
+// ⚠️ UN OCTET SUR DEUX. La cartouche n'utilise que les octets IMPAIRS de sa
+// memoire : le fichier fait 64 Ko pour 32 Ko utiles. On desentrelace avant
+// tout le reste.
+//
+// Une sauvegarde ne porte PAS les echantillons : ils vivent dans la ROM. Les
+// numeros d'echantillon des instruments sont donc laisses tels quels, et
+// designent la banque deja chargee dans le tracker.
+#define MD_SAUVE_MAX 16
+
+// Rend le nombre d'emplacements occupes, ou 0 si ce n'est pas une sauvegarde.
+// `noms` recoit leur nom, `rangs` leur numero d'emplacement.
+int md_sauve_lit(const uint8_t *f, uint32_t taille,
+                 char noms[MD_SAUVE_MAX][11], int rangs[MD_SAUVE_MAX]);
+
+// Verse le morceau range a l'emplacement `rang`. Rend 0 en cas d'echec.
+int md_sauve_importe(const uint8_t *f, uint32_t taille, int rang);
+
 #ifdef __cplusplus
 }
 #endif

@@ -195,3 +195,88 @@ int md_rom_projet_importe(const uint8_t *rom, const md_rom_plan_t *p, int i) {
   verse_instruments(compact, remap);
   return 1;
 }
+
+// ── LA SAUVEGARDE DE LA CARTOUCHE ────────────────────────────────────────
+// Elle porte le meme .bin que la ROM, mais elle n'a rien a voir : la ROM ne
+// contient que ce qu'on y a grave depuis un ordinateur, la sauvegarde contient
+// ce qu'on a ECRIT SUR LA CONSOLE. C'est donc elle qu'on veut recuperer quand
+// on a compose sur la Mega Drive. Sans ce chemin-la, importer ramenait
+// fidelement une version perimee du morceau, ce qui est pire qu'un refus.
+//
+// ⚠️ UN OCTET SUR DEUX. La Mega Drive n'expose que les octets IMPAIRS de sa
+// memoire de sauvegarde (offset logique o -> 0x200001 + 2*o) : le fichier fait
+// 64 Ko pour 32 Ko utiles. On desentrelace d'abord, et on essaie AUSSI le
+// fichier tel quel — certains outils rendent l'image deja compactee.
+static uint8_t utile[32768];
+
+// Rend le nombre d'octets utiles poses dans `utile`, ou 0 si ce n'en est pas.
+static uint32_t sauve_desentrelace(const uint8_t *f, uint32_t taille) {
+  static const char MAGIE[6] = { 'G', 'T', 'L', 'I', 'B', '1' };
+  // Entrelacee : on ne garde que les impairs.
+  if (taille >= 12) {
+    uint32_t n = taille / 2;
+    if (n > sizeof utile) n = sizeof utile;
+    for (uint32_t i = 0; i < n; i++) utile[i] = f[i * 2 + 1];
+    if (memcmp(utile, MAGIE, 6) == 0) return n;
+  }
+  // A plat : le fichier EST l'image utile.
+  if (taille >= 12 && memcmp(f, MAGIE, 6) == 0) {
+    uint32_t n = taille > sizeof utile ? (uint32_t)sizeof utile : taille;
+    memcpy(utile, f, n);
+    return n;
+  }
+  return 0;
+}
+
+// Les seize entrees de quatorze octets : nom[10], offset u16, taille u16.
+// ⚠️ PETIT-BOUTIEN, contrairement au reste de la ROM : la bibliotheque a ete
+// ecrite octet par octet par le 68000, pas par des mots.
+static uint16_t le16(const uint8_t *p) {
+  return (uint16_t)(p[0] | ((uint16_t)p[1] << 8));
+}
+
+int md_sauve_lit(const uint8_t *f, uint32_t taille,
+                 char noms[MD_SAUVE_MAX][11], int rangs[MD_SAUVE_MAX]) {
+  const uint32_t n = sauve_desentrelace(f, taille);
+  if (!n) return 0;
+  int trouves = 0;
+  for (int e = 0; e < MD_SAUVE_MAX; e++) {
+    const uint8_t *b = utile + 8 + (uint32_t)e * 14;
+    const uint16_t len = le16(b + 12), off = le16(b + 10);
+    if (!len || (uint32_t)off + len > n) continue;
+    // Le nom est complete a l'ESPACE, pas au zero : on rogne la queue.
+    int k = 10;
+    while (k > 0 && (b[k - 1] == ' ' || b[k - 1] == 0)) k--;
+    for (int j = 0; j < k; j++) noms[trouves][j] = (char)b[j];
+    noms[trouves][k] = 0;
+    if (!k) { noms[trouves][0] = '?'; noms[trouves][1] = 0; }
+    rangs[trouves] = e;
+    trouves++;
+  }
+  return trouves;
+}
+
+int md_sauve_importe(const uint8_t *f, uint32_t taille, int rang) {
+  const uint32_t n = sauve_desentrelace(f, taille);
+  if (!n || rang < 0 || rang >= MD_SAUVE_MAX) return 0;
+  const uint8_t *b = utile + 8 + (uint32_t)rang * 14;
+  const uint16_t len = le16(b + 12), off = le16(b + 10);
+  if (!len || (uint32_t)off + len > n) return 0;
+
+  md_codec_decomprime(utile + off, len, compact);
+
+  // ⚠️ AUCUN ECHANTILLON ICI. Ils vivent dans la ROM, jamais dans la
+  // sauvegarde — la cartouche n'a que 32 Ko. Les numeros d'echantillon des
+  // instruments sont donc laisses INTACTS : ils designent la banque deja
+  // chargee dans le tracker. C'est juste quand on a importe la ROM d'abord,
+  // et c'est la seule chose qu'on puisse faire quand on ne l'a pas.
+  int direct[32];
+  for (int k = 0; k < 32; k++) direct[k] = k;
+
+  verse_song(compact);
+  verse_chains(compact);
+  verse_phrases(compact);
+  verse_tables(compact);
+  verse_instruments(compact, direct);
+  return 1;
+}
