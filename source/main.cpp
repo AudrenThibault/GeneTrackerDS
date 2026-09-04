@@ -3354,18 +3354,18 @@ int main(void) {
       //   EXPORT PLAYER ROM  la cartouche qui JOUE le morceau, telle qu'elle
       //                      existe depuis toujours : elle enregistre le flux
       //                      de registres, rien n'y est modifiable.
-      //   EXPORT MD PROJECT (ROM)  le projet lui-meme, grave dans une
+      //   EXPORT PROJECT TO MD ROM  le projet lui-meme, grave dans une
       //                      cartouche GeneTracker : il reste EDITABLE, on le
       //                      recharge et on le retouche sur la Mega Drive.
       // On choisit ; l'un ne remplace pas l'autre.
       //
-      // A l'import l'intitule change de sujet, et c'est voulu : ce qui SORT
-      // d'un export est une ROM, ce qu'on RECUPERE d'un import est un projet.
-      // La ROM n'y est que la source.
+      // Les deux intitules disent ce qui se DEPLACE et vers ou : un projet
+      // part vers une ROM, un projet revient d'une ROM. « EXPORT ROM » tout
+      // court ne disait pas laquelle des deux ROMs, ni ce qu'elle contenait.
       const char *entrees[10] = { "TEMPO", "SAVE SONG", "LOAD SONG",
                                   "NEW SONG", "LOAD DEMO",
                                   "EXPORT PLAYER ROM", "EXPORT VGM",
-                                  "EXPORT MD PROJECT (ROM)", "IMPORT ROM PROJECT",
+                                  "EXPORT PROJECT TO MD ROM", "IMPORT PROJECT FROM MD ROM",
                                   "ABOUT" };
       // ── On ne repeint QUE si quelque chose a change ────────────────────
       // Ces huit lignes plus leurs valeurs etaient redessinees a CHAQUE image,
@@ -4309,7 +4309,7 @@ int main(void) {
       // de faire.
       titre(fc + 2, fl + 1,
             (nomPour == NOM_ROM)     ? "EXPORT PLAYER ROM AS:"
-          : (nomPour == NOM_ROM_TRK) ? "EXPORT MD PROJECT AS:"
+          : (nomPour == NOM_ROM_TRK) ? "EXPORT PROJECT TO MD ROM AS:"
           : (nomPour == NOM_VGM)     ? "EXPORT VGM AS:" : "SAVE AS:", kTitre);
       // La region est montree ET modifiable ici : c'est elle qui decide de la
       // cadence gravee, et se tromper rend le morceau 20 % trop lent sur la
