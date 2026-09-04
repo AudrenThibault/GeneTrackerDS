@@ -38,7 +38,7 @@ fi
 ICI="$(cd "$(dirname "$0")" && pwd)"
 MOTEUR="$ICI/moteur"
 OBJ="$ICI/build"
-CIBLE="$ICI/MDTrackerDS"
+CIBLE="$ICI/GeneTrackerDS"
 
 ARCH="-march=armv5te -mtune=arm946e-s"
 # En tableau, pas en chaine : les chemins contiennent des espaces et une
@@ -66,7 +66,8 @@ echo "  compilation du moteur (partage avec l'iPad)..."
 # fichier .s qui l'accompagne est le lecteur 68000 ; il n'est PAS compile ici —
 # il l'a ete une fois, et son binaire vit dans mdplayer_bin.h.
 for f in "$MOTEUR"/CustomReplayer/*.c "$MOTEUR"/emu76489/*.c "$MOTEUR"/ROM/*.c \
-         "$MOTEUR"/ymfm/*.cpp "$MOTEUR"/MegaDrive/*.cpp; do
+         "$MOTEUR"/ymfm/*.cpp "$MOTEUR"/MegaDrive/*.cpp \
+         "$MOTEUR"/MegaDrive/*.c; do
   [ -e "$f" ] || continue
   echo "    $(basename "$f")"
   compile "$f"
@@ -90,7 +91,7 @@ arm-none-eabi-gcc -specs=ds_arm7_iwram.specs -g -mcpu=arm7tdmi -mtune=arm7tdmi \
 
 echo "  edition de liens (ARM9)..."
 arm-none-eabi-g++ -specs=ds_arm9.specs -g $ARCH \
-  -Wl,--gc-sections -Wl,-Map,"$OBJ/MDTrackerDS.map" \
+  -Wl,--gc-sections -Wl,-Map,"$OBJ/GeneTrackerDS.map" \
   "${OBJETS[@]}" -L"$LIBNDS/lib" -lfat -lnds9 -o "$CIBLE.elf"
 
 # En-tete de 0x4000 : la cartouche se declare titre DSi, ce qui lui vaut le

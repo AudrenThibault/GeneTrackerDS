@@ -332,7 +332,10 @@ bool md_rom_export_end(md_rom_export_t *e, md_rom_report_t *rapport) {
   uint8_t *h = tete + 0x100;
   memset(h, ' ', 0x100);
   memcpy(h + 0x000, "SEGA MEGA DRIVE ", 16);
-  memcpy(h + 0x010, "(C)MDTRACKER    ", 16);
+  // ⚠️ SEIZE CARACTERES, EXACTEMENT. Le champ de copyright de l'en-tete SEGA
+  // est de longueur fixe : plus court, il deborde sur le champ suivant ; plus
+  // long, il ecrase la date. On complete donc a la main.
+  memcpy(h + 0x010, "(C)GENETRACKER  ", 16);
   char nm[49];
   memset(nm, ' ', sizeof(nm));
   { size_t n = strlen(e->titre); if (n > 48) n = 48; memcpy(nm, e->titre, n); }

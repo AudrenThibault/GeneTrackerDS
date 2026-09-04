@@ -39,6 +39,8 @@ extern "C" {
 
 extern "C" {
 #include "CustomReplayer/md_replayer.h"
+// Importer un projet depuis une ROM GeneTracker — voir md_rom_projet.h.
+#include "MegaDrive/md_rom_projet.h"
 #include "ROM/md_rom.h"
 #include "ROM/md_vgm.h"
 }
@@ -656,7 +658,7 @@ int main(void) {
   bool journalSale = false;
   static char journalChemin[192];
   {
-    strcpy(journalChemin, "/MDTRACKER.LOG");
+    strcpy(journalChemin, "/GENETRACKER.LOG");
     // nds-bootstrap transmet le chemin de la cartouche ; on ecrit a cote.
     if (__system_argv->argvMagic == ARGV_MAGIC &&
         __system_argv->argc > 0 && __system_argv->argv[0]) {
@@ -664,7 +666,7 @@ int main(void) {
       strncpy(tmp, __system_argv->argv[0], sizeof(tmp) - 20);
       tmp[sizeof(tmp) - 20] = 0;
       char *barre = strrchr(tmp, '/');
-      if (barre) { barre[1] = 0; strcat(tmp, "MDTRACKER.LOG");
+      if (barre) { barre[1] = 0; strcat(tmp, "GENETRACKER.LOG");
                    strcpy(journalChemin, tmp); }
     }
   }
@@ -701,11 +703,11 @@ int main(void) {
         strncpy(aCote, __system_argv->argv[0], sizeof(aCote) - 20);
         aCote[sizeof(aCote) - 20] = 0;
         char *barre = strrchr(aCote, '/');
-        if (barre) { barre[1] = 0; strcat(aCote, "MDTRACKER.LOG"); }
+        if (barre) { barre[1] = 0; strcat(aCote, "GENETRACKER.LOG"); }
         else aCote[0] = 0;
       }
-      const char *candidats[4] = { aCote, "sd:/MDTRACKER.LOG",
-                                   "fat:/MDTRACKER.LOG", "/MDTRACKER.LOG" };
+      const char *candidats[4] = { aCote, "sd:/GENETRACKER.LOG",
+                                   "fat:/GENETRACKER.LOG", "/GENETRACKER.LOG" };
       for (int i = 0; i < 4 && !journalChoisi; i++) {
         if (!candidats[i][0]) continue;
         FILE *t = fopen(candidats[i], "a");
@@ -2416,6 +2418,62 @@ int main(void) {
                                 pageVue = -1; }
           if ((frappe & KEY_A) && nbFichiers > 0 && typeFic[selFichier] == 2) {
             entre(fichiers[selFichier]);
+          }
+          // ── UNE ROM GENETRACKER : ON EN TIRE LE PROJET ──────────────
+          // ⚠️ On la lit ENTIEREMENT en memoire — un demi-megaoctet, la DS en
+          // a quatre. La lire par morceaux obligerait a suivre le plan a
+          // travers des lectures dispersees, pour rien.
+          else if ((frappe & KEY_A) && nbFichiers > 0
+                   && typeFic[selFichier] == 1 && navGenre == 2) {
+            char chemin[224];
+            const int Ld = (int)strlen(dossier);
+            siprintf(chemin, "%s%s%s", dossier,
+                     (Ld && dossier[Ld-1] == '/') ? "" : "/",
+                     fichiers[selFichier]);
+            causeTour = "IMPORT ROM";
+            char e[130];
+            FILE *fr = fopen(chemin, "rb");
+            if (!fr) { strcpy(msgProjet, "ROM UNREADABLE"); }
+            else {
+              fseek(fr, 0, SEEK_END);
+              const long lg = ftell(fr);
+              fseek(fr, 0, SEEK_SET);
+              uint8_t *rom = (lg > 0 && lg <= 4*1024*1024)
+                           ? (uint8_t *)malloc((size_t)lg) : 0;
+              if (rom && fread(rom, 1, (size_t)lg, fr) == (size_t)lg) {
+                md_rom_plan_t plan;
+                if (!md_rom_plan_lit(rom, (uint32_t)lg, &plan)) {
+                  // Une ROM d'avant le plan, ou pas une ROM GeneTracker.
+                  strcpy(msgProjet, "NO PROJECT IN THIS ROM");
+                  siprintf(e, "IMPORT : PAS DE PLAN DANS %s", fichiers[selFichier]);
+                } else {
+                  const int n = md_rom_morceaux(rom, &plan);
+                  // ⚠️ Le premier morceau, et on le DIT quand il y en a
+                  // plusieurs : choisir sans le savoir serait pire que tout.
+                  if (n <= 0) { strcpy(msgProjet, "ROM HAS NO SONG");
+                                siprintf(e, "IMPORT : AUCUN MORCEAU"); }
+                  else {
+                    md_replayer_stop(); enLecture = false;
+                    if (md_rom_projet_importe(rom, &plan, 0)) {
+                      char nomM[11]; md_rom_nom(rom, &plan, 0, nomM);
+                      strncpy(nomProjet, nomM, sizeof(nomProjet) - 1);
+                      nomProjet[sizeof(nomProjet) - 1] = 0;
+                      modifie = true;
+                      if (n > 1) siprintf(msgProjet, "IMPORTED %s (1/%d)", nomM, n);
+                      else       siprintf(msgProjet, "IMPORTED %s", nomM);
+                      siprintf(e, "IMPORT ROM : %s, %d morceau(x)", nomM, n);
+                    } else { strcpy(msgProjet, "IMPORT FAILED");
+                             siprintf(e, "IMPORT : ECHEC"); }
+                  }
+                }
+              } else { strcpy(msgProjet, "ROM UNREADABLE");
+                       siprintf(e, "IMPORT : LECTURE IMPOSSIBLE"); }
+              if (rom) free(rom);
+              fclose(fr);
+              journal(e);
+            }
+            msgProjetJusqu = secondes + 4;
+            navigateur = false; page = pageRetour; pageVue = -1;
           }
           else if ((frappe & KEY_A) && nbFichiers > 0
                    && typeFic[selFichier] == 1 && navGenre == 1) {
