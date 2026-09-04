@@ -2491,6 +2491,13 @@ int main(void) {
                     navGenre = 3; resteNav = true;
                     siprintf(navEntete, "SAVE : %d SONG(S)", ns);
                     siprintf(e, "SAUVEGARDE : %d morceau(x)", ns);
+                  } else if (ns == 0) {
+                    // C'EST une sauvegarde, mais rien n'y a ete enregistre :
+                    // dire « ce n'est pas du GeneTracker » enverrait chercher
+                    // un autre fichier alors qu'il faut retourner enregistrer
+                    // sur la console.
+                    strcpy(msgProjet, "SAVE HOLDS NO SONG");
+                    siprintf(e, "IMPORT : SAUVEGARDE VIDE");
                   } else {
                     strcpy(msgProjet, "NOT A GENETRACKER ROM OR SAVE");
                     siprintf(e, "IMPORT : NI PLAN NI GTLIB1 DANS %s",

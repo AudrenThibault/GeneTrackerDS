@@ -235,10 +235,14 @@ static uint16_t le16(const uint8_t *p) {
   return (uint16_t)(p[0] | ((uint16_t)p[1] << 8));
 }
 
+// Rend -1 quand ce N'EST PAS une sauvegarde, et 0 quand c'en est une mais
+// qu'elle est vide. La nuance compte a l'ecran : « ce fichier n'est pas du
+// GeneTracker » et « tu n'as rien enregistre sur la console » demandent deux
+// gestes differents, et les confondre envoie chercher le mauvais fichier.
 int md_sauve_lit(const uint8_t *f, uint32_t taille,
                  char noms[MD_SAUVE_MAX][11], int rangs[MD_SAUVE_MAX]) {
   const uint32_t n = sauve_desentrelace(f, taille);
-  if (!n) return 0;
+  if (!n) return -1;
   int trouves = 0;
   for (int e = 0; e < MD_SAUVE_MAX; e++) {
     const uint8_t *b = utile + 8 + (uint32_t)e * 14;

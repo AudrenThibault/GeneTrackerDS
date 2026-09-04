@@ -61,7 +61,8 @@ int md_rom_projet_importe(const uint8_t *rom, const md_rom_plan_t *p, int i);
 // designent la banque deja chargee dans le tracker.
 #define MD_SAUVE_MAX 16
 
-// Rend le nombre d'emplacements occupes, ou 0 si ce n'est pas une sauvegarde.
+// Rend le nombre d'emplacements occupes ; 0 si la sauvegarde est vide, et -1
+// si le fichier n'est pas une sauvegarde du tout.
 // `noms` recoit leur nom, `rangs` leur numero d'emplacement.
 int md_sauve_lit(const uint8_t *f, uint32_t taille,
                  char noms[MD_SAUVE_MAX][11], int rangs[MD_SAUVE_MAX]);
