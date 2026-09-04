@@ -631,7 +631,14 @@ int main(void) {
   // se retrouvait trois octaves trop haut. Chaque voie part donc de C-4.
   //   la note 49 est le C de la quatrieme octave : (49-1) % 12 = 0, (49-1)/12 = 4
   int derniereNote[10];
-  for (int i2 = 0; i2 < 10; i2++) derniereNote[i2] = 49;
+  for (int i2 = 0; i2 < 10; i2++) derniereNote[i2] = 49;   // C-4 partout
+  // ⚠️ LE PCM NE SE SOUVIENT DE RIEN, ET C'EST VOULU. Un echantillon joue a sa
+  // vitesse d'enregistrement en C-4 : c'est la hauteur qu'on veut chaque fois
+  // qu'on en pose un, pas celle du sample precedent, qui etait accordee pour
+  // un autre son. On la change apres si on veut, mais on part toujours de la.
+  auto noteDepart = [&](int voie) {
+    return (voie == MD_PCM_CHANNEL) ? 49 : derniereNote[voie];
+  };
   // L'instrument retenu pour CHAQUE voie. Sans lui, poser une note sur une
   // nouvelle colonne reprenait l'instrument 1, et deux voies se retrouvaient a
   // jouer exactement la meme chose — indiscernable d'une voie muette.
@@ -2282,7 +2289,7 @@ int main(void) {
             md_replayer_get_phrase(ph, phLigne, &no,&ins,&vel,&cmd,&cv,&mc,&mv);
             switch (phCol) {
               case 0: { int n = (no && no != MD_EMPTY ? (int)no
-                                 : derniereNote[voieCourante])
+                                 : noteDepart(voieCourante))
                                 + sens * (grand ? 12 : 1);
                         no = (uint8_t)borne(n, 1, MD_MAX_NOTE);
                         derniereNote[voieCourante] = no;
@@ -2807,7 +2814,7 @@ int main(void) {
             switch (phCol) {
               case 0: if (no && no != MD_EMPTY) derniereNote[voieCourante] = no;
                       else {
-                        no = (uint8_t)derniereNote[voieCourante];
+                        no = (uint8_t)noteDepart(voieCourante);
                         // La note prend l'instrument DU CANAL, pas le premier
                         // venu : c'est ce qui donne un timbre par colonne.
                         if (!ins) {
