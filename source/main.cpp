@@ -608,7 +608,8 @@ int main(void) {
   //   SONG   CHAIN   PHRASE   INSTR
   // SELECT + haut monte a PROJECT, SELECT + bas redescend.
   enum { PAGE_SONG = 0, PAGE_CHAIN = 1, PAGE_PHRASE = 2,
-         PAGE_INSTR = 3, PAGE_PROJECT = 4, PAGE_TABLE = 5 };
+         PAGE_INSTR = 3, PAGE_PROJECT = 4, PAGE_TABLE = 5,
+         PAGE_APROPOS = 6 };
   // Curseur de la page TABLE : seize lignes, HUIT arrets.
   //   0 VOL   1 TSP
   //   2 lettre CMD 1   3 sa valeur
@@ -2568,8 +2569,8 @@ int main(void) {
         // tempo, A ne fait rien tout seul : c'est A + gauche/droite qui change
         // la valeur, et A seul ne doit donc pas declencher d'action.
         else {
-          if (appui & KEY_UP)   menuProjet = borne(menuProjet - 1, 0, 8);
-          if (appui & KEY_DOWN) menuProjet = borne(menuProjet + 1, 0, 8);
+          if (appui & KEY_UP)   menuProjet = borne(menuProjet - 1, 0, 9);
+          if (appui & KEY_DOWN) menuProjet = borne(menuProjet + 1, 0, 9);
 
           if (menuProjet == 0) {
             if ((keysHeld() & KEY_A) && (appui & (KEY_LEFT | KEY_RIGHT))) {
@@ -2629,6 +2630,8 @@ int main(void) {
               nomPour = NOM_ROM_TRK;
               dialogueNom = true; nomLig = 3; nomCol = 9;
               assombrirDemande = true; pageVue = -1;
+            } else if (menuProjet == 9) {
+              page = PAGE_APROPOS; pageVue = -1;
             } else if (menuProjet == 8) {
               // Importer : on choisit une ROM sur la carte.
               if (carteOK) { creeSiAbsent(dossierRoms);
@@ -3283,6 +3286,51 @@ int main(void) {
       }
       }
     }
+    // ── LA PAGE ABOUT ─────────────────────────────────────────────────
+    // ⚠️ CE QUI EST ECRIT ICI N'EST PAS DECORATIF, C'EST L'AVIS LEGAL.
+    // La GNU GPL v3, article 5(d) : si un programme affiche des « Appropriate
+    // Legal Notices », TOUTE VERSION MODIFIEE DOIT CONTINUER A LES AFFICHER.
+    // C'est ce qui rend le credit opposable — ni une licence permissive ni la
+    // GPL seule ne l'obtiennent. Le terme additionnel 7(b) y ajoute le nom et
+    // le lien. On peut ajouter des lignes ici ; on n'en retire pas.
+    else if (page == PAGE_APROPOS) {
+      static bool vuApropos = false;
+      if (ecranEfface || !vuApropos) {
+        vuApropos = true;
+        static const char *lignes[] = {
+          "GENETRACKERDS",
+          "A MUSIC TRACKER FOR THE NINTENDO DSI, PLAYING THE",
+          "SEGA MEGA DRIVE SOUND CHIPS.",
+          "",
+          "COPYRIGHT (C) 2026 AUDREN THIBAULT",
+          "",
+          "GITHUB.COM/AUDRENTHIBAULT/MDTRACKERDS",
+          "",
+          "THIS PROGRAM COMES WITH ABSOLUTELY NO WARRANTY. IT IS",
+          "FREE SOFTWARE UNDER THE GNU GPL VERSION 3, AND YOU ARE",
+          "WELCOME TO REDISTRIBUTE IT UNDER ITS TERMS. THE FULL",
+          "LICENCE IS IN THE FILE NAMED LICENSE, IN THE SOURCE",
+          "REPOSITORY ABOVE.",
+          "",
+          "GPL 7(B) TERM : KEEP THE AUTHOR NAME AND THE LINK",
+          "ABOVE, IN THE SOURCE AND ON THIS PAGE.",
+          "",
+          "FM EMULATION : YMFM BY AARON GILES, BSD 3-CLAUSE.",
+          "PSG EMULATION : EMU76489 BY MITSUTAKA OKAZAKI, MIT.",
+          "SEE TIERS.MD FOR THEIR NOTICES.",
+          "",
+          "B  BACK"
+        };
+        ecran(g_fond);
+        const int sauve = g_colOrigine; g_colOrigine = 0;
+        titre(2, 1, "ABOUT", kEntete);
+        for (int i = 0; i < (int)(sizeof(lignes) / sizeof(lignes[0])); i++)
+          texte(2, 4 + i, lignes[i],
+                (i == 0) ? kAccent : (i == 4 || i == 6) ? kTitre : kData);
+        g_colOrigine = sauve;
+      }
+      if (frappe & KEY_B) { page = PAGE_PROJECT; pageVue = -1; vuApropos = false; }
+    }
     else if (page == PAGE_PROJECT && !dialogueNom) {
       // ── Un vrai menu : on s'y deplace, et A actionne la ligne pointee ────
       // Les lignes sont espacees de deux, sinon on ne distingue rien.
@@ -3302,10 +3350,11 @@ int main(void) {
       // A l'import l'intitule change de sujet, et c'est voulu : ce qui SORT
       // d'un export est une ROM, ce qu'on RECUPERE d'un import est un projet.
       // La ROM n'y est que la source.
-      const char *entrees[9] = { "TEMPO", "SAVE SONG", "LOAD SONG",
-                                 "NEW SONG", "LOAD DEMO",
-                                 "EXPORT PLAYER ROM", "EXPORT VGM",
-                                 "EXPORT MD PROJECT (ROM)", "IMPORT ROM PROJECT" };
+      const char *entrees[10] = { "TEMPO", "SAVE SONG", "LOAD SONG",
+                                  "NEW SONG", "LOAD DEMO",
+                                  "EXPORT PLAYER ROM", "EXPORT VGM",
+                                  "EXPORT MD PROJECT (ROM)", "IMPORT ROM PROJECT",
+                                  "ABOUT" };
       // ── On ne repeint QUE si quelque chose a change ────────────────────
       // Ces huit lignes plus leurs valeurs etaient redessinees a CHAQUE image,
       // curseur immobile compris. Les ecritures couraient alors apres le
@@ -3323,7 +3372,7 @@ int main(void) {
       vuMenu = menuProjet; vuBpm = bpmVu2; vuCarte = carteOK;
       vuDemo = demoChargee;
       strncpy(vuNom, nomProjet, sizeof(vuNom) - 1); vuNom[sizeof(vuNom) - 1] = 0;
-      for (int i = 0; i < 9; i++) {
+      for (int i = 0; i < 10; i++) {
         const int lig = 4 + i * 2;
         efface(0, lig, 34);
         texte(0, lig, (i == menuProjet) ? ">" : " ",
