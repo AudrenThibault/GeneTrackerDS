@@ -971,6 +971,15 @@ int main(void) {
   // Creer un morceau neuf efface celui qui est en memoire, et rien n'est
   // encore enregistre sur la carte : on demande confirmation.
   bool demandeNouveau = false;
+  // ⚠️ APRES UN IMPORT DE SAUVEGARDE, LES SONS MANQUENT ET IL FAUT LE DIRE.
+  // La cartouche n'a que 32 Ko : ses echantillons vivent dans la ROM, jamais
+  // dans la sauvegarde. Le morceau arrive donc complet avec une voie PCM
+  // muette, et rien n'expliquait pourquoi. On pose la question tout de suite,
+  // et on emmene directement au choix de la ROM.
+  bool demandeEchantillons = false;
+  int  manqueEchantillons = 0;
+  // 0 = importer le projet d'une ROM, 1 = n'en prendre que les echantillons.
+  int  romPour = 0;
   int menuProjet = 0;   // ligne pointee dans le menu de la page PROJECT
   // La console visee par l'export. Une Mega Drive PAL affiche 49,70 images par
   // seconde et une NTSC 59,92 : le lecteur de la cartouche avance d'une image
@@ -2468,7 +2477,20 @@ int main(void) {
                            ? (uint8_t *)malloc((size_t)lg) : 0;
               if (rom && fread(rom, 1, (size_t)lg, fr) == (size_t)lg) {
                 md_rom_plan_t plan;
-                if (!md_rom_plan_lit(rom, (uint32_t)lg, &plan)) {
+                // ── LA ROM N'EST LA QUE POUR SES SONS ──────────────────
+                // On vient d'importer un morceau depuis une sauvegarde et il
+                // lui manque ses echantillons. Verser le morceau de la ROM
+                // par-dessus effacerait justement ce qu'on vient de
+                // recuperer : on ne prend que les sons.
+                if (romPour == 1 && md_rom_plan_lit(rom, (uint32_t)lg, &plan)) {
+                  const int n =
+                      md_rom_echantillons_seuls(rom, &plan, MD_MAX_INSTRUMENTS);
+                  romPour = 0;
+                  modifie = true;
+                  if (n > 0) siprintf(msgProjet, "%d SAMPLES TAKEN FROM ROM", n);
+                  else       strcpy(msgProjet, "THIS ROM HAS NONE OF THEM");
+                  siprintf(e, "ECHANTILLONS DEPUIS ROM : %d", n);
+                } else if (!md_rom_plan_lit(rom, (uint32_t)lg, &plan)) {
                   // ── PAS UNE ROM. ALORS UNE SAUVEGARDE ? ────────────────
                   // ⚠️ CE CAS-LA N'EST PAS UN REPLI, C'EST LE CAS COURANT.
                   // La ROM ne contient que ce qu'on y a grave depuis un
@@ -2565,11 +2587,14 @@ int main(void) {
               // pas les echantillons : ils sont dans la ROM. Les instruments
               // gardent leur numero d'echantillon, qui ne designe rien tant
               // qu'on n'a pas importe la ROM ou charge les WAV.
-              if (md_replayer_sample_count() == 0)
-                siprintf(msgProjet, "IMPORTED AS %s - NO SAMPLES", nomProjet);
-              else
-                siprintf(msgProjet, "IMPORTED AS %s", nomProjet);
+              siprintf(msgProjet, "IMPORTED AS %s", nomProjet);
               siprintf(e, "IMPORT SAUVEGARDE : rang %d, %s", rang, nomProjet);
+              // ⚠️ ON DEMANDE LA ROM TOUT DE SUITE. Le morceau est complet,
+              // mais ses echantillons sont restes dans la cartouche : sans
+              // cette question on repart avec une voie PCM muette sans savoir
+              // qu'il manque quelque chose.
+              manqueEchantillons = md_echantillons_manquants(MD_MAX_INSTRUMENTS);
+              if (manqueEchantillons > 0) demandeEchantillons = true;
             } else { strcpy(msgProjet, "IMPORT FAILED");
                      siprintf(e, "IMPORT SAUVEGARDE : ECHEC rang %d", rang); }
             journal(e);
@@ -2660,6 +2685,18 @@ int main(void) {
           }
           if (frappe & KEY_B) { demandeNouveau = false; pageVue = -1; }
         }
+        else if (demandeEchantillons) {
+          if (frappe & KEY_A) {
+            // On ouvre le navigateur sur les ROMs, en mode « echantillons
+            // seuls » : la ROM choisie ne remplacera pas le morceau importe.
+            demandeEchantillons = false;
+            romPour = 1;
+            navGenre = 2; scanne(); navigateur = true;
+            pageRetour = PAGE_PROJECT; pageVue = -1;
+          }
+          if (frappe & KEY_B) { demandeEchantillons = false; pageVue = -1;
+                                journal("ECHANTILLONS : REMIS A PLUS TARD"); }
+        }
         else if (demandeVoies) {
           if (frappe & KEY_A) { appliqueVoiesSupp(true);  demandeVoies = false;
                                 journal("VOIES FM5 PS2 PS3 ACTIVEES PAR L'UTILISATEUR"); }
@@ -2739,6 +2776,9 @@ int main(void) {
               if (carteOK) { creeSiAbsent(dossierRoms);
                              strcpy(dossier, dossierRoms);
                              causeTour = "ROMS";
+                             // Entree par le MENU : on veut le projet entier,
+                             // pas seulement les sons.
+                             romPour = 0;
                              navGenre = 2; scanne(); navigateur = true;
                              pageRetour = PAGE_PROJECT; pageVue = -1; }
             } else if (menuProjet == 4) {
@@ -3365,9 +3405,10 @@ int main(void) {
     // leur propre effacement. Ils ne se repeignent QUE s'ils changent : une
     // question figee redessinee a chaque image donnait les memes bandes de
     // vieux televiseur que le menu, si la lecture tournait derriere.
-    else if (page == PAGE_PROJECT && (demandeNouveau || demandeVoies)) {
+    else if (page == PAGE_PROJECT
+             && (demandeNouveau || demandeVoies || demandeEchantillons)) {
       static int vuQuestion = -1;
-      const int question = demandeNouveau ? 1 : 2;
+      const int question = demandeNouveau ? 1 : demandeVoies ? 2 : 3;
       const bool refaireQ = ecranEfface || question != vuQuestion;
       vuQuestion = question;
       if (!refaireQ) { /* rien n'a bouge */ } else {
@@ -3383,7 +3424,19 @@ int main(void) {
         "PLAYBACK SMOOTH. TURNING THEM",
         "ON MAY MAKE IT STUTTER.",
         "A TURN ON      B LEAVE OFF" };
-      const char **m = demandeNouveau ? msgNouveau : msgVoies;
+      // Le nombre d'instruments concernes se met dans la phrase : « quelques
+      // instruments » ne dit pas s'il faut s'en soucier.
+      static char l2[42];
+      siprintf(l2, "%d INSTRUMENT%s NO SOUND.", manqueEchantillons,
+               manqueEchantillons > 1 ? "S HAVE" : " HAS");
+      const char *msgEch[6] = {
+        "SAMPLES ARE MISSING", "",
+        l2,
+        "A SAVE HOLDS NO SAMPLES : THEY",
+        "LIVE IN THE MD ROM.",
+        "A PICK THE ROM   B LATER" };
+      const char **m = demandeNouveau ? msgNouveau
+                     : demandeVoies   ? msgVoies : msgEch;
       for (int i = 0; i < 6; i++) {
         efface(0, 4 + i, 41);
         titre(0, 4 + i, m[i], (i == 0 || i == 5) ? kEntete : kAttenue);

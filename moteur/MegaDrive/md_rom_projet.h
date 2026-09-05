@@ -70,6 +70,17 @@ int md_sauve_lit(const uint8_t *f, uint32_t taille,
 // Verse le morceau range a l'emplacement `rang`. Rend 0 en cas d'echec.
 int md_sauve_importe(const uint8_t *f, uint32_t taille, int rang);
 
+// Combien d'instruments PCM reclament un echantillon que la banque n'a pas.
+// C'est ce qu'on obtient apres un import de sauvegarde tant qu'on n'a pas
+// donne la ROM d'ou le morceau vient.
+int md_echantillons_manquants(int nb_instr);
+
+// Prend dans la ROM les seuls echantillons que les instruments en place
+// reclament, et recale leur numero sur la banque de la DS. Rend le nombre
+// d'echantillons repris.
+int md_rom_echantillons_seuls(const uint8_t *rom, const md_rom_plan_t *p,
+                              int nb_instr);
+
 #ifdef __cplusplus
 }
 #endif

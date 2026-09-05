@@ -284,3 +284,54 @@ int md_sauve_importe(const uint8_t *f, uint32_t taille, int rang) {
   verse_instruments(compact, direct);
   return 1;
 }
+
+// ── RECUPERER LES ECHANTILLONS SEULS ──────────────────────────────────────
+// ⚠️ UNE SAUVEGARDE NE PORTE PAS SES SONS. La cartouche n'a que 32 Ko : les
+// echantillons vivent dans la ROM, jamais dans la sauvegarde. Importer un
+// morceau depuis une sauvegarde donne donc des instruments PCM dont le numero
+// d'echantillon ne designe rien — le morceau est complet, la voie PCM est
+// muette, et rien ne dit pourquoi.
+//
+// On va donc chercher dans la ROM les seuls echantillons que les instruments
+// EN PLACE reclament, et on recale leur numero sur la banque de la DS.
+int md_rom_echantillons_seuls(const uint8_t *rom, const md_rom_plan_t *p,
+                              int nb_instr) {
+  int remap[32];
+  for (int k = 0; k < 32; k++) remap[k] = -1;
+  int pris = 0;
+
+  for (int i = 0; i < nb_instr; i++) {
+    const int e = md_replayer_get_instr_sample(i);
+    if (e < 0 || e >= 32) continue;
+    if (remap[e] < 0) {
+      const uint32_t off = be32(rom + p->pcm_offset   + (uint32_t)e * 4);
+      const uint32_t len = be32(rom + p->pcm_longueur + (uint32_t)e * 4);
+      if (!len || off + len > p->pcm_capacite) continue;
+      char nom[18];
+      int k = 0;
+      const uint8_t *sn = rom + p->pcm_nom + (uint32_t)e * 17;
+      while (k < 16 && sn[k]) { nom[k] = (char)sn[k]; k++; }
+      nom[k] = 0;
+      const int boucle = (int)be32(rom + p->pcm_boucle + (uint32_t)e * 4);
+      const int idx = md_replayer_add_sample(nom, rom + p->pcm_banque + off,
+                                             len, boucle, rom[p->pcm_note + e]);
+      if (idx < 0) continue;
+      remap[e] = idx;
+      pris++;
+    }
+    md_replayer_set_instr_sample(i, remap[e]);
+  }
+  return pris;
+}
+
+// Combien d'instruments reclament un echantillon que la banque n'a pas.
+int md_echantillons_manquants(int nb_instr) {
+  const int n = md_replayer_sample_count();
+  int manque = 0;
+  for (int i = 0; i < nb_instr; i++) {
+    if (md_replayer_get_instr_kind(i) != MD_INSTR_KIND_PCM) continue;
+    const int e = md_replayer_get_instr_sample(i);
+    if (e < 0 || e >= n) manque++;
+  }
+  return manque;
+}
