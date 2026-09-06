@@ -35,10 +35,10 @@ included.
 ## Seven voices by default, not ten
 
 A Mega Drive has six FM voices and four from the PSG. The DS emulates them in
-software, on a 67 MHz ARM9, while it also draws the tracker and reads the SD
-card. Computing one more FM voice costs about a sixth of the audio work — four
-operators out of twenty-four — and that sixth is the difference between clean
-playback and playback that stutters.
+software, on the DSi's 133 MHz ARM9, while it also draws the tracker and reads
+the SD card. Computing one more FM voice costs about a sixth of the audio work
+— four operators out of twenty-four — and that sixth is the difference between
+clean playback and playback that stutters.
 
 So a new project starts with **FM5, PSG2 and PSG3 switched off**, and plays the
 other seven.
