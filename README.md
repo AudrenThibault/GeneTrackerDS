@@ -20,8 +20,8 @@ included.
 
 ## What it does
 
-- **Sequences** ten voices, through the song → chain → phrase chain, with
-  tables.
+- **Sequences** the Mega Drive's ten voices, through the song → chain → phrase
+  chain, with tables. Seven of them play by default on the DS — see below.
 - **Edits FM instruments**: four operators, eleven parameters each, algorithm,
   feedback, LFO.
 - **PSG macros** — volume, arpeggio, noise mode — and a three-point envelope.
@@ -31,6 +31,27 @@ included.
 - **Exports a player ROM** — a Mega Drive cartridge that plays the song — and
   **a GeneTrackerMD ROM**, where the song stays editable on the console.
 - **Imports a project back** from a GeneTrackerMD ROM.
+
+## Seven voices by default, not ten
+
+A Mega Drive has six FM voices and four from the PSG. The DS emulates them in
+software, on a 67 MHz ARM9, while it also draws the tracker and reads the SD
+card. Computing one more FM voice costs about a sixth of the audio work — four
+operators out of twenty-four — and that sixth is the difference between clean
+playback and playback that stutters.
+
+So a new project starts with **FM5, PSG2 and PSG3 switched off**, and plays the
+other seven.
+
+They are switched **off**, never removed. The notes stay in the file. The same
+project opened on a Mega Drive, or on the iPad, plays complete — the DS does
+not mutilate anything, it declines to play. Open a song that uses those three
+and the tracker says so, and offers to turn them on; it will warn you that the
+sound may stutter, and on a DSi it usually does.
+
+If you are testing in an emulator, do not trust it on this point: melonDS runs
+the audio roughly four times cheaper than the console does. A song that plays
+cleanly there can stutter on the hardware.
 
 ## Building
 
