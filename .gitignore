@@ -35,3 +35,7 @@ data/
 # Le binaire publie va sur la page Releases, pas dans le depot.
 release/
 *.nds
+
+# Les notes de travail : francaises, et elles decrivent l interieur du
+# projet iPad, qui est proprietaire.
+LISEZMOI.md
