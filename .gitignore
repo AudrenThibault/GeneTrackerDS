@@ -31,3 +31,7 @@ MDTRACKER.LOG
 *.mdm
 *.MDM
 data/
+
+# Le binaire publie va sur la page Releases, pas dans le depot.
+release/
+*.nds
