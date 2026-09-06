@@ -18,7 +18,7 @@ build/
 carteSD/
 
 # ── Le journal du tracker ──────────────────────────────────────────────────
-MDTRACKER.LOG
+GENETRACKER.LOG
 
 .DS_Store
 

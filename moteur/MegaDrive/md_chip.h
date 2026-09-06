@@ -1,6 +1,6 @@
 //
 //  md_chip.h
-//  MDTracker
+//  GeneTrackerDS
 //
 //  Couche « puce » de la Mega Drive : YM2612 (FM, 6 voies) + SN76489 (PSG,
 //  3 tons + 1 bruit), mixés et rééchantillonnés vers la fréquence de sortie

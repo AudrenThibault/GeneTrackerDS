@@ -1052,7 +1052,7 @@ static inline void write32le(uint8_t *p, uint32_t v) {
 }
 
 // ============================================================================
-// Format de fichier .mdm (MDTracker Module) — version 2
+// Format de fichier .mdm (GeneTracker Module) — version 2
 //
 // Format maison, non compressé. La version 2 abandonne les patterns au profit
 // de la structure LSDJ : SONG (256 lignes × 10 canaux de numéros de chain),

@@ -167,7 +167,7 @@ static uint32_t gd3_construit(uint8_t *p, uint32_t cap, const char *titre) {
   n += gd3_chaine(p + n, "");                    // auteur
   n += gd3_chaine(p + n, "");
   n += gd3_chaine(p + n, "");                    // date de sortie
-  n += gd3_chaine(p + n, "MD Tracker DS");       // qui a converti
+  n += gd3_chaine(p + n, "GeneTrackerDS");       // qui a converti
   n += gd3_chaine(p + n, "");                    // remarques
   memcpy(p, "Gd3 ", 4);
   pose32(p + 4, 0x00000100);                     // version

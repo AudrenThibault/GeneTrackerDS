@@ -4,7 +4,7 @@ A music tracker for the **Nintendo DSi**, playing the Sega Mega Drive's sound
 chips: the YM2612 for FM and the SN76489 for PSG, both emulated on the machine
 itself.
 
-It is the sibling of [GeneTrackerMD](https://github.com/AudrenThibault/NativeMegadriveTracker),
+It is the sibling of [GeneTrackerMD](https://github.com/AudrenThibault/GeneTrackerMD),
 which runs on the actual console. Songs travel between the two, samples
 included.
 

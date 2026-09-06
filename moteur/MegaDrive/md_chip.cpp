@@ -1,6 +1,6 @@
 //
 //  md_chip.cpp
-//  MDTracker
+//  GeneTrackerDS
 //
 //  Voir md_chip.h.
 //

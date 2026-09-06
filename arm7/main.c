@@ -1,5 +1,5 @@
 // ============================================================================
-//  Le noyau ARM7 de MD Tracker DS.
+//  Le noyau ARM7 de GeneTrackerDS.
 //
 //  Pourquoi ce fichier existe : la DS a deux processeurs. L'ARM9 fait le
 //  tracker ; l'ARM7 tient le son, les touches, l'ecran tactile et le bouton

@@ -1,7 +1,7 @@
 Pourquoi libnds 1.8.3 est range ici
 ===================================
 
-MD Tracker DS ne se compile PAS avec le libnds installe sur la machine
+GeneTrackerDS ne se compile PAS avec le libnds installe sur la machine
 (actuellement 2.0.x). Il se compile contre libnds 1.8.3, qui vit dans ce
 dossier. Rien n'est installe sur le systeme : le devkitPro de la machine
 reste intact, et les autres projets avec lui.

@@ -1,5 +1,5 @@
 // ============================================================================
-//  MD Tracker DS — le meme tracker Mega Drive, natif Nintendo DSi.
+//  GeneTrackerDS — le meme tracker Mega Drive, natif Nintendo DSi.
 //
 //  Ecran du HAUT : l'ecran CRT, plein cadre. Rien autour : ni meuble, ni
 //  panneaux, ni liste d'instruments — c'est le parti pris, comme LSDJ.
@@ -758,7 +758,7 @@ int main(void) {
   // supposer : un dossier qui n'existe pas faisait retomber l'enregistrement
   // a la racine, sans rien dire.
   // Le chemin transmis par nds-bootstrap est utilise TEL QUEL. Le journal l'a
-  // confirme : « sd:/roms/nds/MDTrackerNDS/... » fonctionne. J'avais ajoute une
+  // confirme : « sd:/roms/nds/UNDOSSIER/... » fonctionne. J'avais ajoute une
   // seconde variante, sans le prefixe de lecteur, en supposant qu'il pourrait
   // ne pas convenir — cette exploration a l'aveugle enchainait des opendir et
   // des mkdir sur un chemin qui ne designe rien, et bloquait le demarrage sur

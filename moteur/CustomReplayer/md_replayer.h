@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 // ============================================================================
-// MDTracker — replayer Mega Drive
+// GeneTracker — replayer Mega Drive
 //
 // Le séquenceur (patterns, ordre, tempo/speed, effets) est repris tel quel du
 // tracker OPL3 d'origine : mêmes numéros d'effets, mêmes comportements, même
