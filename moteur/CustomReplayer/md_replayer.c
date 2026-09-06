@@ -1640,10 +1640,8 @@ static int md_next_song_row(int c, int from) {
 // courante, en sautant les lignes de chain vides et en passant au chain suivant
 // du song quand le chain est épuisé. Boucle en fin de colonne (comme LSDJ).
 // ── Blocs de la grille SONG ─────────────────────────────────────────────────
-// Modèle repris du tracker d'exemple :
-//   /Users/audren/Documents/Antigravity/LSDJ to caustic et inversement/
-//   Emulateur GB LSDJ  —  LSDJStudioApp/UI/SamplePanel.swift
-//   (soloSongLocs, blockTopRow, addChainLocs, buildSongLocations)
+// Modèle repris d'un tracker de samples à deux canaux pris pour référence
+// (soloSongLocs, blockTopRow, addChainLocs, buildSongLocations).
 //
 // Chaque canal joue le BLOC CONTIGU de lignes remplies qui contient le curseur,
 // et boucle sur CE bloc. Trois règles, dans les mots du fichier :

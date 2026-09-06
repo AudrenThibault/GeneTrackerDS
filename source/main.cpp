@@ -31,7 +31,6 @@ static inline void debogLigne(const char *m) {
 #include <string.h>
 
 #include "md_font.h"
-#include "morceau_dmf.h"
 
 extern "C" {
 #include "MegaDrive/md_chip.h"
@@ -481,7 +480,6 @@ int main(void) {
 
   // Le morceau de demonstration est EMBARQUE mais ne se charge pas tout seul :
   // on demarre sur un projet vide, et il s'ouvre depuis la page PROJECT.
-  bool demoChargee = false;
 
   // ── Le son ────────────────────────────────────────────────────────────
   soundEnable();
@@ -1007,7 +1005,7 @@ int main(void) {
   int navGenre = 0;   // 0 = morceaux, 1 = echantillons, 2 = ROMs,
                       // 3 = les morceaux d'une SAUVEGARDE de cartouche
   // ⚠️ Une sauvegarde tient plusieurs morceaux, et le bon n'est presque jamais
-  // le premier — sur la cartouche d'essai, TUTU est au rang 1. Alors au lieu
+  // le premier — sur la cartouche d'essai il est au rang 1. Alors au lieu
   // d'en choisir un a l'aveugle, on RECHARGE la liste du navigateur avec les
   // morceaux qu'elle contient : meme affichage, meme defilement, meme B pour
   // revenir. L'image reste en memoire entre les deux ecrans, c'est tout ce que
@@ -1109,7 +1107,7 @@ int main(void) {
     // Les deux partageaient la meme variable : apres avoir charge un
     // echantillon, elle pointait sur « Samples », et le morceau suivant y
     // atterrissait. Le journal l'a montre noir sur blanc —
-    // « ENREGISTRE : .../Samples/FABA.MDM ».
+    // « ENREGISTRE : .../Samples/MONMORCEAU.MDM ».
     creeSiAbsent(dossierSongs);        // au premier enregistrement
     char courant[136];
     const int Ld = (int)strlen(dossierSongs);
@@ -2539,7 +2537,7 @@ int main(void) {
                       // Le meme morceau existe presque toujours des deux
                       // cotes : sans le suffixe, enregistrer la version qui
                       // vient de la cartouche ecraserait la version DS, qui
-                      // porte le meme nom. « TUTU » devient donc « TUTUMD ».
+                      // porte le meme nom : « X » devient donc « XMD ».
                       // On coupe a six caracteres pour que les deux lettres
                       // tiennent dans les huit d'un nom de fichier.
                       { int k = 0;
@@ -2655,7 +2653,6 @@ int main(void) {
                 }
                 nomProjet[j] = 0;
                 strncpy(sauveNom, nomProjet, 8); sauveNom[8] = 0; }
-              demoChargee = false;
               curLigne = 0; haut = 0; curCanal = 0;
               chainId = 0; phraseId = 0; instrId = 1;
               chLigne = chCol = phLigne = phCol = inLigne = inCol = 0;
@@ -2675,7 +2672,6 @@ int main(void) {
             md_replayer_new_empty();
             md_replayer_set_bpm(125.0);
             appliqueVoiesSupp(false);
-            demoChargee = false;
             curLigne = 0; haut = 0; curCanal = 0;
             chainId = 0; phraseId = 0; instrId = 1;
             chLigne = chCol = phLigne = phCol = inLigne = inCol = 0;
@@ -2708,8 +2704,8 @@ int main(void) {
         // tempo, A ne fait rien tout seul : c'est A + gauche/droite qui change
         // la valeur, et A seul ne doit donc pas declencher d'action.
         else {
-          if (appui & KEY_UP)   menuProjet = borne(menuProjet - 1, 0, 9);
-          if (appui & KEY_DOWN) menuProjet = borne(menuProjet + 1, 0, 9);
+          if (appui & KEY_UP)   menuProjet = borne(menuProjet - 1, 0, 8);
+          if (appui & KEY_DOWN) menuProjet = borne(menuProjet + 1, 0, 8);
 
           if (menuProjet == 0) {
             if ((keysHeld() & KEY_A) && (appui & (KEY_LEFT | KEY_RIGHT))) {
@@ -2751,27 +2747,27 @@ int main(void) {
                              pageRetour = PAGE_PROJECT; pageVue = -1; }
             } else if (menuProjet == 3) {
               demandeNouveau = true; pageVue = -1;
-            } else if (menuProjet == 6) {
+            } else if (menuProjet == 5) {
               // On NOMME d'abord : la meme fenetre que pour enregistrer un
               // projet, avec le nom du projet propose par defaut.
               strncpy(sauveNom, nomProjet, 8); sauveNom[8] = 0;
               nomPour = NOM_VGM;
               dialogueNom = true; nomLig = 3; nomCol = 9;
               assombrirDemande = true; pageVue = -1;
-            } else if (menuProjet == 5) {
+            } else if (menuProjet == 4) {
               strncpy(sauveNom, nomProjet, 8); sauveNom[8] = 0;
               nomPour = NOM_ROM;
               dialogueNom = true; nomLig = 3; nomCol = 9;
               assombrirDemande = true; pageVue = -1;
-            } else if (menuProjet == 7) {
+            } else if (menuProjet == 6) {
               // La ROM GeneTracker : on la NOMME d'abord, comme les autres.
               strncpy(sauveNom, nomProjet, 8); sauveNom[8] = 0;
               nomPour = NOM_ROM_TRK;
               dialogueNom = true; nomLig = 3; nomCol = 9;
               assombrirDemande = true; pageVue = -1;
-            } else if (menuProjet == 9) {
-              page = PAGE_APROPOS; pageVue = -1;
             } else if (menuProjet == 8) {
+              page = PAGE_APROPOS; pageVue = -1;
+            } else if (menuProjet == 7) {
               // Importer : on choisit une ROM sur la carte.
               if (carteOK) { creeSiAbsent(dossierRoms);
                              strcpy(dossier, dossierRoms);
@@ -2781,19 +2777,6 @@ int main(void) {
                              romPour = 0;
                              navGenre = 2; scanne(); navigateur = true;
                              pageRetour = PAGE_PROJECT; pageVue = -1; }
-            } else if (menuProjet == 4) {
-              // LOAD DEMO, et ELLE SEULE. Ce « sinon » attrapait toute ligne
-              // non traitee : la ligne REGION tombait dedans et chargeait la
-              // demo au lieu de changer la region.
-              md_dmf_report_t rapport;
-              md_replayer_stop(); enLecture = false;
-              demoChargee = md_replayer_import_dmf(morceau_dmf,
-                                                   morceau_dmf_len, &rapport);
-              curLigne = 0; haut = 0; curCanal = 0;
-              appliqueVoiesSupp(false);
-              if (demoChargee && morceauUtiliseVoiesSupp()) {
-                demandeVoies = true; pageVue = -1;
-              }
             }
           }
         }
@@ -3507,11 +3490,16 @@ int main(void) {
       // Les deux intitules disent ce qui se DEPLACE et vers ou : un projet
       // part vers une ROM, un projet revient d'une ROM. « EXPORT ROM » tout
       // court ne disait pas laquelle des deux ROMs, ni ce qu'elle contenait.
-      const char *entrees[10] = { "TEMPO", "SAVE SONG", "LOAD SONG",
-                                  "NEW SONG", "LOAD DEMO",
-                                  "EXPORT PLAYER ROM", "EXPORT VGM",
-                                  "EXPORT PROJECT TO MD ROM", "IMPORT PROJECT FROM MD ROM",
-                                  "ABOUT" };
+      // ⚠️ PLUS DE « LOAD DEMO ». Le morceau de demonstration etait une
+      // composition de l'auteur, embarquee dans le binaire : elle n'a pas sa
+      // place dans un depot public, et une version publiee n'a pas a imposer
+      // la musique de quelqu'un a qui la telecharge. Un morceau se charge par
+      // LOAD SONG, et par nulle autre porte.
+      const char *entrees[9] = { "TEMPO", "SAVE SONG", "LOAD SONG",
+                                 "NEW SONG",
+                                 "EXPORT PLAYER ROM", "EXPORT VGM",
+                                 "EXPORT PROJECT TO MD ROM", "IMPORT PROJECT FROM MD ROM",
+                                 "ABOUT" };
       // ── On ne repeint QUE si quelque chose a change ────────────────────
       // Ces huit lignes plus leurs valeurs etaient redessinees a CHAQUE image,
       // curseur immobile compris. Les ecritures couraient alors apres le
@@ -3519,15 +3507,13 @@ int main(void) {
       // traversent la page des qu'on lance la lecture. Meme remede que sur les
       // pages CHAIN et PHRASE, qui avaient exactement le meme defaut.
       const int bpmVu2 = (int)(md_replayer_get_bpm() + 0.5);
-      static int vuMenu = -1, vuBpm = -1, vuCarte = -1, vuDemo = -1;
+      static int vuMenu = -1, vuBpm = -1, vuCarte = -1;
       static char vuNom[16] = "\x01";
       const bool refaireMenu = ecranEfface || menuProjet != vuMenu ||
                                bpmVu2 != vuBpm || (int)carteOK != vuCarte ||
-                               (int)demoChargee != vuDemo ||
                                strncmp(vuNom, nomProjet, sizeof(vuNom) - 1) != 0;
       if (refaireMenu) {
       vuMenu = menuProjet; vuBpm = bpmVu2; vuCarte = carteOK;
-      vuDemo = demoChargee;
       strncpy(vuNom, nomProjet, sizeof(vuNom) - 1); vuNom[sizeof(vuNom) - 1] = 0;
       // ⚠️ UNE RANGEE PAR ENTREE, PAS UNE SUR DEUX.
       // L'ecran ne montre que 19 rangees : 192 pixels divises par une cellule
@@ -3536,7 +3522,7 @@ int main(void) {
       // hors de l'ecran et donc introuvables. C'est l'ESPACEMENT qui debordait,
       // pas la taille des lettres : les serrer les garde lisibles, les
       // rapetisser ne ferait que les rendre penibles.
-      for (int i = 0; i < 10; i++) {
+      for (int i = 0; i < 9; i++) {
         const int lig = 4 + i;
         efface(0, lig, 34);
         texte(0, lig, (i == menuProjet) ? ">" : " ",
@@ -3554,7 +3540,6 @@ int main(void) {
       efface(14, 6, 26);
       texte(14, 6, nomProjet[0] ? nomProjet : "(UNNAMED)", kData);
       texte(14, 8, carteOK ? "" : "NO SD CARD", kData);
-      texte(14, 8, demoChargee ? "LOADED" : "", kData);   // en face de LOAD DEMO
       }
     }
 

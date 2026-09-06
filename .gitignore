@@ -21,3 +21,13 @@ carteSD/
 MDTRACKER.LOG
 
 .DS_Store
+
+# La musique de l auteur et les morceaux importes : des compositions,
+# pas des sources.
+*.dmf
+*.DMF
+*.a2m
+*.A2M
+*.mdm
+*.MDM
+data/
