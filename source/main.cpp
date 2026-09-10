@@ -3978,27 +3978,6 @@ int main(void) {
         texte(22, 1, "MD CMD", kTitre);
         g_decalYpx = 0;
 
-        // Le nom de la commande pointee, centre sous la grille — meme regle
-        // que sur la page PHRASE. Les colonnes 2-3 et 4-5 portent les deux
-        // commandes a lettre, 6-7 la commande MD.
-        { uint8_t vo, c1, v1, c2, v2, mc2, mv2; int8_t tr;
-          md_replayer_get_table_row(tableId, tabLigne, &vo, &tr,
-                                    &c1, &v1, &c2, &v2, &mc2, &mv2);
-          const uint8_t nNom  = (uint8_t)(sizeof(kNomCmd) / sizeof(kNomCmd[0]));
-          const uint8_t nNomM = (uint8_t)(sizeof(kNomMdCmd) / sizeof(kNomMdCmd[0]));
-          const char *nomT = 0;
-          if ((tabCol == 2 || tabCol == 3) && c1 != MD_EMPTY && c1 < nNom)
-            nomT = kNomCmd[c1];
-          else if ((tabCol == 4 || tabCol == 5) && c2 != MD_EMPTY && c2 < nNom)
-            nomT = kNomCmd[c2];
-          else if ((tabCol == 6 || tabCol == 7) && mc2 != MD_EMPTY && mc2 < nNomM)
-            nomT = kNomMdCmd[mc2];
-          efface(0, 20, kCols);
-          if (nomT) {
-            int lg = 0; while (nomT[lg]) lg++;
-            titre((kCols - lg) / 2, 20, nomT, kTitre);
-          } }
-
         for (int l = 0; l < MD_TABLE_ROWS; l++) {
           if ((l & 7) == 0) entretienSon();
           const int lig = 3 + l;
@@ -4103,34 +4082,6 @@ int main(void) {
                                  (idCourant != vuId) || (ligCour != vuLig2) ||
                                  (colCour != vuCol2);
       vuPage2 = page; vuId = idCourant; vuLig2 = ligCour; vuCol2 = colCour;
-
-      // ── LE NOM DE LA COMMANDE, SOUS LA GRILLE ─────────────────────────
-      // ⚠️ Une lettre seule ne se retient pas. Tant que le curseur est sur une
-      // colonne de commande, son nom s'ecrit CENTRE sous la grille, separe
-      // d'elle par une rangee vide, et disparait des qu'on en sort. La grille
-      // s'arrete a la rangee 18 sur les trente-deux de l'ecran : la place est
-      // la, inutile d'aller sur l'ecran du bas.
-      if (refaireGrille) {
-        const char *nomC = 0;
-        if (page == PAGE_PHRASE && noPhrase != MD_EMPTY) {
-          uint8_t no,i2,ve,cm,cv,mc,mv;
-          md_replayer_get_phrase(noPhrase, phLigne, &no,&i2,&ve,&cm,&cv,&mc,&mv);
-          // ⚠️ On borne sur la TAILLE DU TABLEAU DE NOMS, pas sur le nombre
-          // de commandes : si la table du moteur grandit sans qu'on ajoute le
-          // libelle, on ne lit pas a cote.
-          const uint8_t nNom  = (uint8_t)(sizeof(kNomCmd) / sizeof(kNomCmd[0]));
-          const uint8_t nNomM = (uint8_t)(sizeof(kNomMdCmd) / sizeof(kNomMdCmd[0]));
-          if ((phCol == 3 || phCol == 4) && cm != MD_EMPTY && cm < nNom)
-            nomC = kNomCmd[cm];
-          else if ((phCol == 5 || phCol == 6) && mc != MD_EMPTY && mc < nNomM)
-            nomC = kNomMdCmd[mc];
-        }
-        efface(0, 20, kCols);
-        if (nomC) {
-          int lg = 0; while (nomC[lg]) lg++;
-          titre((kCols - lg) / 2, 20, nomC, kTitre);
-        }
-      }
 
       for (int l = 0; refaireGrille && l < nl; l++) {
         if (l == 0) entretienSon();
@@ -4384,6 +4335,60 @@ int main(void) {
           vuBas[0][0] = 0;         // le nom sera repose a l'image suivante
         }
         basPrisParFM = fmIci; }
+    }
+
+    // ── LE NOM DE LA COMMANDE, SUR L'ECRAN DU BAS ──────────────────────
+    // ⚠️ IL ETAIT SUR L'ECRAN DU HAUT, sous la grille — la ou personne ne le
+    // cherchait. Une lettre seule ne se retient pas : « U » ne dit pas « fine
+    // tune ». Le nom s'affiche donc en clair pendant qu'on parcourt les
+    // commandes, et il appartient a l'ecran du bas, qui est fait pour ca.
+    //
+    // ⚠️ CALCULE A UN SEUL ENDROIT, ET A CHAQUE IMAGE. Les deux versions
+    // precedentes vivaient dans les blocs de dessin des pages PHRASE et
+    // TABLE : le nom restait donc affiche en quittant la page, puisque plus
+    // personne ne passait par la pour l'effacer. Ici, quitter les colonnes de
+    // commande — ou la page entiere — le fait disparaitre tout seul.
+    {
+      const char *nomCmd = 0;
+      const uint8_t nNom  = (uint8_t)(sizeof(kNomCmd) / sizeof(kNomCmd[0]));
+      const uint8_t nNomM = (uint8_t)(sizeof(kNomMdCmd) / sizeof(kNomMdCmd[0]));
+      if (page == PAGE_PHRASE && !navigateur && !dialogueNom) {
+        uint8_t no,i3,ve,cm,cv,mc,mv;
+        md_replayer_get_phrase((uint8_t)phraseId, phLigne,
+                               &no,&i3,&ve,&cm,&cv,&mc,&mv);
+        if ((phCol == 3 || phCol == 4) && cm != MD_EMPTY && cm < nNom)
+          nomCmd = kNomCmd[cm];
+        else if ((phCol == 5 || phCol == 6) && mc != MD_EMPTY && mc < nNomM)
+          nomCmd = kNomMdCmd[mc];
+      } else if (page == PAGE_TABLE && !navigateur && !dialogueNom) {
+        uint8_t vo, c1, v1, c2, v2, mc2, mv2; int8_t tr;
+        md_replayer_get_table_row(tableId, tabLigne, &vo, &tr,
+                                  &c1, &v1, &c2, &v2, &mc2, &mv2);
+        if ((tabCol == 2 || tabCol == 3) && c1 != MD_EMPTY && c1 < nNom)
+          nomCmd = kNomCmd[c1];
+        else if ((tabCol == 4 || tabCol == 5) && c2 != MD_EMPTY && c2 < nNom)
+          nomCmd = kNomCmd[c2];
+        else if ((tabCol == 6 || tabCol == 7) && mc2 != MD_EMPTY && mc2 < nNomM)
+          nomCmd = kNomMdCmd[mc2];
+      }
+      // On ne repeint QUE si le texte change : redessine a chaque image, il
+      // raye l'ecran de bandes pendant la lecture, comme le menu le faisait.
+      static char vuNomCmd[48] = "\x01";
+      const char *n2 = nomCmd ? nomCmd : "";
+      if (strncmp(vuNomCmd, n2, sizeof vuNomCmd - 1) != 0) {
+        strncpy(vuNomCmd, n2, sizeof vuNomCmd - 1);
+        vuNomCmd[sizeof vuNomCmd - 1] = 0;
+        const int garde = g_colOrigine;
+        g_colOrigine = 0;
+        ecran(bas);
+        efface(0, 20, kCols);
+        if (n2[0]) {
+          int lg = 0; while (n2[lg]) lg++;
+          titre((kCols - lg) / 2, 20, n2, kTitre);
+        }
+        ecran(g_fond);
+        g_colOrigine = garde;
+      }
     }
 
     // On n'ecrit sur la carte que lecture ARRETEE.

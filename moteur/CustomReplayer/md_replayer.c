@@ -1974,6 +1974,21 @@ static void md_process_row() {
         ch_active_eff_val[c][e] = 0;
       }
 
+      // ⚠️ UNE VALEUR 00 ARRÊTE UN EFFET CONTINU, elle ne le relance pas.
+      // On coupait bien juste au-dessus, puis on le RÉARMAIT plus bas avec la
+      // valeur nulle. Et comme les paramètres sont mémorisés
+      // (md_table_latch_effect ne retient que les valeurs NON nulles), le
+      // glissando repartait à la vitesse de la fois d'avant : « 02 00 » après
+      // « 02 56 » continuait de glisser au lieu de s'arrêter.
+      //
+      // ⚠️ SEULEMENT LES CONTINUS. Le zéro est une valeur légitime ailleurs :
+      // « J00 » veut dire « saute à la ligne 0 », pas « n'y va pas ».
+      if (eff_val == 0 && md_effect_is_continuous(eff_type)) {
+        ch_active_eff[c][e] = 0xFF;
+        ch_active_eff_val[c][e] = 0;
+        continue;
+      }
+
       // In AT2, 0 is Arpeggio. But '000' is an empty cell.
       // We must explicitly skip '000' so it doesn't trigger the PERSISTENCE
       // of the last Arpeggio value.
@@ -2706,6 +2721,16 @@ static void md_table_tick(int c) {
       if (cmd != MD_EMPTY) {
         uint8_t e = (eff < 0) ? 0xFF : (uint8_t)eff;
         uint8_t v = (eff < 0) ? 0 : rval;
+        // Une valeur 00 ARRÊTE un effet continu, dans une table comme dans une
+        // phrase — sinon les paramètres mémorisés le relancent à la vitesse
+        // d'avant.
+        if (eff >= 0 && v == 0 && md_effect_is_continuous(e)) {
+          ch_active_eff[c][slot] = 0xFF;
+          ch_active_eff_val[c][slot] = 0;
+          ch_table_pos[c][s] = (uint8_t)((row + 1) & (MD_TABLE_ROWS - 1));
+          md_table_resolve_hops(c, s, tbl);
+          continue;
+        }
         // On ne réarme que ce qui change, pour ne pas relancer à chaque tick un
         // effet continu comme le vibrato.
         if (ch_active_eff[c][slot] != e || ch_active_eff_val[c][slot] != v) {
@@ -4822,6 +4847,16 @@ static void md_apply_mdcmd(int c, uint8_t cmd, uint8_t val,
     md_mdcmd_resolve(cmd, val, &eff, &v);
     uint8_t e = (eff < 0) ? 0xFF : (uint8_t)eff;
     uint8_t ev = (eff < 0) ? 0 : v;
+    // Même règle que pour la colonne CMD : une valeur nulle ARRÊTE un effet
+    // continu. Cette colonne-ci ne l'avait pas du tout, si bien qu'un « 02 00 »
+    // écrit en MD CMD n'annulait jamais rien.
+    if (eff >= 0 && ev == 0 && md_effect_is_continuous(e)) {
+      if (slot >= 0 && slot < MD_EFF_SLOTS) {
+        ch_active_eff[c][slot] = 0xFF;
+        ch_active_eff_val[c][slot] = 0;
+      }
+      return;
+    }
     if (slot >= 0 && slot < MD_EFF_SLOTS &&
         (ch_active_eff[c][slot] != e || ch_active_eff_val[c][slot] != ev)) {
       ch_active_eff[c][slot] = e;
