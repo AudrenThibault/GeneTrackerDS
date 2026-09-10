@@ -331,10 +331,14 @@ static void son_remplir(int n) {
 // Une ligne sur deux legerement assombrie : c'est ce qui donne l'oeil du tube.
 // Elle est appliquee au fond avant d'ecrire le texte, pas apres, pour que les
 // caracteres restent nets.
+// ⚠️ ELLE PEINT LA CIBLE COURANTE, PAS g_fond. Elle ecrivait dans g_fond en
+// dur : « ecran(bas); trame(); » repeignait donc l'ecran du HAUT, et celui du
+// bas n'a jamais recu de fond de sa vie. Tout ce qu'on ecrivait dans sa moitie
+// basse tombait sur de la memoire que personne n'avait preparee.
 static void trame() {
   for (int y = 0; y < kEcranH; y++) {
     u16 c = (y & 1) ? rvb(0, 1, 1) : kFond;
-    for (int x = 0; x < kEcranL; x++) g_fond[y * kEcranL + x] = c;
+    for (int x = 0; x < kEcranL; x++) g_cible[y * kEcranL + x] = c;
   }
 }
 
@@ -4385,11 +4389,18 @@ int main(void) {
         vuPageNom = page;
         const int garde = g_colOrigine;
         g_colOrigine = 0;
+        // ⚠️ RANGEE 4, PAS 20. Les rangees au-dela de la 18 ne sont peintes
+        // par personne : trame() ecrit dans g_fond EN DUR, sans passer par la
+        // cible courante, si bien que « ecran(bas); trame(); » au demarrage a
+        // repeint l'ecran du HAUT. Le bas n'a donc jamais recu de fond, et ce
+        // qu'on y ecrivait tout en bas ne se voyait pas. La bande 3-18, elle,
+        // est entretenue par la page FM et par le nettoyage de changement de
+        // page : on sait qu'elle s'affiche.
         ecran(bas);
-        efface(0, 20, kCols);
+        efface(0, 4, kCols);
         if (n2[0]) {
           int lg = 0; while (n2[lg]) lg++;
-          titre((kCols - lg) / 2, 20, n2, kTitre);
+          titre((kCols - lg) / 2, 4, n2, kTitre);
         }
         ecran(g_fond);
         g_colOrigine = garde;
@@ -4409,7 +4420,7 @@ int main(void) {
         g_colOrigine = 0;
         ecran(bas);
         int lg = 0; while (t[lg]) lg++;
-        texte(kCols - lg - 1, 30, t, kAttenue);
+        texte(kCols - lg - 1, 18, t, kAttenue);
         ecran(g_fond);
         g_colOrigine = garde2;
       } }
