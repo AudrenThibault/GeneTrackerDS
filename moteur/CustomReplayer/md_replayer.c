@@ -4826,6 +4826,16 @@ static bool md_noise_forced(int c) {
   return false;
 }
 
+// Une commande écrit ce que la page instrument AFFICHE, pas ce que le registre
+// attend. Deux écrans qui montrent le même paramètre doivent le montrer dans le
+// même sens, sinon le même nombre veut dire deux choses opposées.
+static uint8_t md_niveau_tl(uint8_t v) {   // 00 le plus bas, 7F le plus fort
+  return (uint8_t)(127 - (v > 127 ? 127 : v));
+}
+static uint8_t md_duree_ar(uint8_t v) {    // 00 instantané, 1F le plus lent
+  return (uint8_t)(31 - (v > 31 ? 31 : v));
+}
+
 static void md_apply_mdcmd(int c, uint8_t cmd, uint8_t val,
                            uint8_t row_cmd, int slot) {
   if (c < 0 || c >= MD_TOTAL_VOICES || cmd == MD_EMPTY ||
@@ -4897,20 +4907,28 @@ static void md_apply_mdcmd(int c, uint8_t cmd, uint8_t val,
     sh->lfo_freq = y & 0x07;
     break;
   case MD_P_FB:  sh->feedback = val & 0x07; break;
-  // TL sur un octet plein : c'est tout l'intérêt d'un effet par opérateur.
-  case MD_P_TL1: sh->op[0].total_level = val & 0x7F; break;
-  case MD_P_TL2: sh->op[1].total_level = val & 0x7F; break;
-  case MD_P_TL3: sh->op[2].total_level = val & 0x7F; break;
-  case MD_P_TL4: sh->op[3].total_level = val & 0x7F; break;
+  // ⚠️ LA VALEUR EST UN NIVEAU, PAS UNE ATTÉNUATION.
+  // Le registre du YM2612 compte à l'envers : 0 y est le plus FORT, 127 le
+  // silence. La page instrument, elle, affiche « OUTPUT LEVEL » à l'endroit —
+  // 7F pour le plus fort. La commande passait la valeur brute : « 12 00 »
+  // mettait l'opérateur à fond et « 12 FF » l'éteignait, l'inverse de ce que
+  // le même nombre veut dire deux écrans plus loin. On écrit ce qu'on lit.
+  case MD_P_TL1: sh->op[0].total_level = md_niveau_tl(val); break;
+  case MD_P_TL2: sh->op[1].total_level = md_niveau_tl(val); break;
+  case MD_P_TL3: sh->op[2].total_level = md_niveau_tl(val); break;
+  case MD_P_TL4: sh->op[3].total_level = md_niveau_tl(val); break;
   case MD_P_MUL: sh->op[op].multiple = y; break;
-  // « Values higher than 0x1F will be ignored », dit le manuel.
+  // Même raison : la page instrument nomme ce champ ATTACK et le montre comme
+  // une DURÉE — monter la valeur allonge l'attaque. Le registre compte à
+  // l'envers. La borne du manuel (« au-delà de 0x1F, ignoré ») devient un
+  // écrêtage : FF veut dire « le plus lent », pas « rien ».
   case MD_P_ARALL:
-    if (val <= 0x1F) for (int k = 0; k < 4; k++) sh->op[k].attack = val;
+    for (int k = 0; k < 4; k++) sh->op[k].attack = md_duree_ar(val);
     break;
-  case MD_P_AR1: if (val <= 0x1F) sh->op[0].attack = val; break;
-  case MD_P_AR2: if (val <= 0x1F) sh->op[1].attack = val; break;
-  case MD_P_AR3: if (val <= 0x1F) sh->op[2].attack = val; break;
-  case MD_P_AR4: if (val <= 0x1F) sh->op[3].attack = val; break;
+  case MD_P_AR1: sh->op[0].attack = md_duree_ar(val); break;
+  case MD_P_AR2: sh->op[1].attack = md_duree_ar(val); break;
+  case MD_P_AR3: sh->op[2].attack = md_duree_ar(val); break;
+  case MD_P_AR4: sh->op[3].attack = md_duree_ar(val); break;
   case MD_P_NOISE: {
     // DefleMask : x = mode étendu (le bruit suit le ton 3), y = blanc.
     // Nos huit modes rangent le type dans le bit 2 et la période dans les
