@@ -2325,6 +2325,22 @@ int main(void) {
               default: mv = (uint8_t)borne((int)mv + sens * (grand ? 16 : 1), 0, 255); break;
             }
             md_replayer_set_phrase(ph, phLigne, no,ins,vel,cmd,cv,mc,mv);
+
+            // ⚠️ ON ENTEND CHAQUE CHANGEMENT, PAS SEULEMENT LA POSE.
+            // Poser une note avec A la faisait sonner, mais la deplacer avec
+            // A + une fleche ne faisait rien entendre : il fallait relacher A
+            // et le represser pour savoir ou l'on etait arrive. Regler une
+            // hauteur en silence, c'est deviner — et c'est justement en
+            // deplacant la note qu'on cherche la bonne.
+            //
+            // A l'arret seulement, et sur LA VOIE DE LA COLONNE, pour les
+            // memes raisons qu'a la pose : une audition par-dessus la lecture
+            // volerait une voie au morceau, et la voie d'essai est cablee sur
+            // FM6 — une note posee sur une colonne PSG s'y entendrait en FM.
+            if (phCol == 0 && no && no != MD_EMPTY && !enLecture) {
+              voieAudition = voieCourante;
+              md_replayer_play_test_note(no, ins ? ins : 1, voieAudition);
+            }
           }
         }
       // Le curseur BUTE aux extremites, il n'enroule pas.
