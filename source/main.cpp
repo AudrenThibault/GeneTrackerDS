@@ -2317,16 +2317,20 @@ int main(void) {
               case 3: { const int nb = md_table_cmd_count();
                         int c2 = (cmd == MD_EMPTY ? -1 : (int)cmd) + sens;
                         if (c2 >= nb) c2 = nb - 1;
-                        cmd = (c2 < 0) ? MD_EMPTY : (uint8_t)c2; } break;
-              case 4: cv = (uint8_t)borne((int)cv + sens * (grand ? 16 : 1), 0, 255); break;
+                        cmd = (c2 < 0) ? MD_EMPTY : (uint8_t)c2;
+                        if (cmd != MD_EMPTY) { derCmd = cmd; derCmdVal = cv; } } break;
+              case 4: cv = (uint8_t)borne((int)cv + sens * (grand ? 16 : 1), 0, 255);
+                      if (cmd != MD_EMPTY) { derCmd = cmd; derCmdVal = cv; } break;
               // Le CODE machine, sur sa propre colonne. Il etait absent du
               // switch : le « default » l'attrapait et modifiait la VALEUR.
               // Curseur sur les deux premiers chiffres, ce sont les deux
               // derniers qui bougeaient.
               case 5: { int m2 = (mc == MD_EMPTY ? -1 : (int)mc)
                                  + sens * (grand ? 16 : 1);
-                        mc = (m2 < 0) ? MD_EMPTY : (uint8_t)borne(m2, 0, 255); } break;
-              default: mv = (uint8_t)borne((int)mv + sens * (grand ? 16 : 1), 0, 255); break;
+                        mc = (m2 < 0) ? MD_EMPTY : (uint8_t)borne(m2, 0, 255);
+                        if (mc != MD_EMPTY) { derMdCmd = mc; derMdVal = mv; } } break;
+              default: mv = (uint8_t)borne((int)mv + sens * (grand ? 16 : 1), 0, 255);
+                       if (mc != MD_EMPTY) { derMdCmd = mc; derMdVal = mv; } break;
             }
             md_replayer_set_phrase(ph, phLigne, no,ins,vel,cmd,cv,mc,mv);
 
@@ -2911,10 +2915,22 @@ int main(void) {
                 break;
               }
               case 2: if (vel == MD_EMPTY) vel = 127; break;
-              case 3: case 4: if (cmd == MD_EMPTY) cmd = 0; break;
+              // ⚠️ UNE CASE VIDE RAPPELLE LA DERNIERE COMMANDE POSEE, valeur
+              // comprise — comme sur la page TABLE, qui le faisait deja. Ici
+              // on repartait de la premiere lettre de la liste et d'une valeur
+              // nulle : apres avoir efface une commande avec A+B, il fallait
+              // retraverser toute la liste pour retrouver la meme, en
+              // declenchant au passage un changement de table ou de tempo.
+              case 3: case 4:
+                if (cmd == MD_EMPTY) { cmd = derCmd; cv = derCmdVal; }
+                else { derCmd = cmd; derCmdVal = cv; }
+                break;
               // Le CODE de la premiere commande machine, et non zero :
               // zero n'est pas forcement un code valide.
-              default: if (mc == MD_EMPTY) mc = md_mdcmd_code(0); break;
+              default:
+                if (mc == MD_EMPTY) { mc = derMdCmd; mv = derMdVal; }
+                else { derMdCmd = mc; derMdVal = mv; }
+                break;
             }
             md_replayer_set_phrase(ph, phLigne, no,ins,vel,cmd,cv,mc,mv);
 
