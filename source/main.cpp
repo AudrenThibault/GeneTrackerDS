@@ -4374,10 +4374,15 @@ int main(void) {
       // On ne repeint QUE si le texte change : redessine a chaque image, il
       // raye l'ecran de bandes pendant la lecture, comme le menu le faisait.
       static char vuNomCmd[48] = "\x01";
+      static int vuPageNom = -1;
       const char *n2 = nomCmd ? nomCmd : "";
-      if (strncmp(vuNomCmd, n2, sizeof vuNomCmd - 1) != 0) {
+      // ⚠️ LA PAGE FAIT PARTIE DE LA CLE. Les nettoyages de l'ecran du bas
+      // effacent sans prevenir ce cache ; sans la page, un texte inchange
+      // n'etait jamais repose et la ligne restait vide pour de bon.
+      if (strncmp(vuNomCmd, n2, sizeof vuNomCmd - 1) != 0 || page != vuPageNom) {
         strncpy(vuNomCmd, n2, sizeof vuNomCmd - 1);
         vuNomCmd[sizeof vuNomCmd - 1] = 0;
+        vuPageNom = page;
         const int garde = g_colOrigine;
         g_colOrigine = 0;
         ecran(bas);
@@ -4390,6 +4395,24 @@ int main(void) {
         g_colOrigine = garde;
       }
     }
+
+    // ── QUELLE VERSION TOURNE ? ────────────────────────────────────────
+    // ⚠️ On a perdu des heures, des deux cotes, a chercher un defaut dans du
+    // code deja repare parce qu'un binaire perime etait a l'essai — et rien a
+    // l'ecran ne permettait de s'en apercevoir. L'heure de compilation est
+    // gravee dans le binaire : elle suffit a repondre en une seconde.
+    { static bool tamponPose = false;
+      if (!tamponPose) {
+        tamponPose = true;
+        const char *t = __DATE__ " " __TIME__;
+        const int garde2 = g_colOrigine;
+        g_colOrigine = 0;
+        ecran(bas);
+        int lg = 0; while (t[lg]) lg++;
+        texte(kCols - lg - 1, 30, t, kAttenue);
+        ecran(g_fond);
+        g_colOrigine = garde2;
+      } }
 
     // On n'ecrit sur la carte que lecture ARRETEE.
     //
